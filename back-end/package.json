@@ -1,0 +1,43 @@
+{
+  "name": "cv-reformat-backend",
+  "version": "1.0.0",
+  "main": "dist/app.js",
+  "scripts": {
+    "start": "ts-node src/app.ts",
+    "build": "tsc",
+    "dev": "nodemon src/app.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.38.4",
+    "@xmldom/xmldom": "^0.9.8",
+    "canvas": "^3.1.2",
+    "convertapi": "^1.15.0",
+    "convertapi-js": "^1.0.8",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "get-pdf-urls": "^1.0.0",
+    "mammoth": "^1.9.1",
+    "multer": "^1.4.5-lts.1",
+    "ocr-space-api-wrapper": "^2.4.1",
+    "openai": "^4.104.0",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^1.1.1",
+    "pdf-poppler": "^0.2.1",
+    "pdf2pic": "^3.2.0",
+    "pdf-to-text": "^0.0.8",
+    "pdfjs-dist": "^5.3.31",
+    "tesseract.js": "^5.1.1",
+    "tmp": "^0.2.3",
+    "xmldom": "^0.6.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.7",
+    "@types/node": "^20.4.2",
+    "nodemon": "^3.0.1",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.1.6"
+  }
+}
