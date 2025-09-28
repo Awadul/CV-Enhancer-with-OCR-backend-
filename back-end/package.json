@@ -25,7 +25,7 @@
     "pdf-parse": "^1.1.1",
     "pdf-poppler": "^0.2.1",
     "pdf2pic": "^3.2.0",
-    "pdf-to-text": "^0.0.8",
+    "pdf-to-text": "^0.0.7",
     "pdfjs-dist": "^5.3.31",
     "tesseract.js": "^5.1.1",
     "tmp": "^0.2.3",
