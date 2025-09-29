@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import fileRoutes from './routes/fileRoutes';
+import { deleteAllFilesInUploads, scheduleDailyUploadsCleanup } from './utils/fileCleanup';
 
 dotenv.config();
 
@@ -25,7 +26,14 @@ app.get('/', (req, res) => {
 // Initialize database and start server
 const startServer = async () => {
   try {
-    
+    // Cleanup uploads immediately on server start
+    deleteAllFilesInUploads()
+      .then(() => console.log('[uploads-cleanup] Startup cleanup completed'))
+      .catch((err) => console.error('[uploads-cleanup] Startup cleanup failed', err));
+
+    // Schedule daily cleanup
+    scheduleDailyUploadsCleanup();
+
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
