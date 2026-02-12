@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
 import { sendToOpenAI } from '../utils/openaiClient';
 import multer from 'multer';
 // import ConvertAPI from 'convertapi';
@@ -9,10 +10,7 @@ import pdf from 'pdf-parse';
 import mammoth from 'mammoth';
 import { fromPath as pdf2picFromPath } from 'pdf2pic';
 import Tesseract from 'tesseract.js';
-// @ts-ignore
-import getPdfUrls from 'get-pdf-urls';
 import { PDFDocument, PDFDict, PDFName, PDFString, PDFHexString } from 'pdf-lib';
-var pdfUtil = require('pdf-to-text')
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(uploadsDir)) {
@@ -33,39 +31,122 @@ const upload = multer({ storage });
 
 export default upload;
 
-// Helper function to extract annotation URLs using pdf-lib
-async function extractPdfLibLinks(filePath: string): Promise<string[]> {
+const URL_REGEX = /https?:\/\/[\w\-._~:/?#[\]@!$&'()*+,;=%]+/gi;
+const ENABLE_OCR = process.env.ENABLE_OCR === 'true';
+
+const runPdfToText = (filePath: string): Promise<string> =>
+  new Promise((resolve, reject) => {
+    execFile(
+      'pdftotext',
+      ['-layout', '-enc', 'UTF-8', filePath, '-'],
+      { maxBuffer: 10 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(stdout || '');
+      }
+    );
+  });
+
+async function extractPdfContent(filePath: string): Promise<{ content: string[]; links: string[] }> {
+  const buffer = fs.readFileSync(filePath);
+  const textParts: string[] = [];
+  const links: string[] = [];
+
   try {
-    const fileBuffer = fs.readFileSync(filePath);
-    const pdfDoc = await PDFDocument.load(fileBuffer);
-    const links: string[] = [];
-    for (let i = 0; i < pdfDoc.getPageCount(); i++) {
-      const page = pdfDoc.getPage(i);
+    const parsed = await pdf(buffer);
+    if (parsed.text) {
+      textParts.push(parsed.text);
+    }
+    const visibleLinks = parsed.text?.match(URL_REGEX) || [];
+    links.push(...visibleLinks);
+  } catch (err) {
+    console.warn('pdf-parse failed:', err);
+  }
+
+  if (textParts.join('').trim() === '') {
+    try {
+      const text = await runPdfToText(filePath);
+      if (text.trim() !== '') {
+        textParts.push(text);
+        const visibleLinks = text.match(URL_REGEX) || [];
+        links.push(...visibleLinks);
+      }
+    } catch (err) {
+      console.warn('pdftotext fallback failed:', err);
+    }
+  }
+
+  try {
+    const doc = await PDFDocument.load(buffer);
+    const pages = doc.getPages();
+
+    for (const page of pages) {
       // @ts-ignore
       const annots = page.node.Annots && page.node.Annots();
-      if (annots && typeof annots.asArray === 'function') {
-        for (const annotRef of annots.asArray()) {
-          // @ts-ignore
-          const annot = pdfDoc.context.lookup(annotRef);
-          if (!(annot instanceof PDFDict)) continue;
-          const subtype = annot.get(PDFName.of('Subtype'));
-          if (subtype === PDFName.of('Link')) {
-            const action = annot.get(PDFName.of('A'));
-            if (action instanceof PDFDict) {
-              const uri = action.get(PDFName.of('URI'));
-              if (uri instanceof PDFString || uri instanceof PDFHexString) {
-                links.push(uri.decodeText());
-              }
-            }
-          }
+      if (!annots || typeof annots.asArray !== 'function') continue;
+
+      for (const ref of annots.asArray()) {
+        // @ts-ignore
+        const annot = doc.context.lookup(ref);
+        if (!(annot instanceof PDFDict)) continue;
+        const action = annot.get(PDFName.of('A'));
+        if (!(action instanceof PDFDict)) continue;
+        const uri = action.get(PDFName.of('URI'));
+        if (uri instanceof PDFString || uri instanceof PDFHexString) {
+          links.push(uri.decodeText());
         }
       }
     }
-    return links;
   } catch (err) {
-    console.error('Error extracting links with pdf-lib:', err);
-    return [];
+    console.warn('pdf-lib annotation failed:', err);
   }
+
+  if (textParts.join('').trim() === '' && ENABLE_OCR) {
+    const density = 200;
+    const images: string[] = [];
+
+    try {
+      const pdfDoc = await PDFDocument.load(buffer);
+      const pageCount = pdfDoc.getPageCount();
+
+      for (let i = 0; i < pageCount; i++) {
+        const converter = pdf2picFromPath(filePath, {
+          density,
+          format: 'jpeg',
+          saveFilename: `page_${i}`,
+          savePath: path.dirname(filePath),
+        });
+
+        const output = await converter(i + 1);
+        if (output?.path) images.push(output.path);
+      }
+
+      const ocrTexts = await Promise.all(
+        images.map((img) =>
+          Tesseract.recognize(img, 'eng').then((result) => result.data.text)
+        )
+      );
+
+      textParts.push(...ocrTexts);
+
+      const ocrLinks = ocrTexts.join('\n').match(URL_REGEX) || [];
+      links.push(...ocrLinks);
+    } catch (err) {
+      console.warn('OCR fallback failed, returning non-OCR content:', err);
+    } finally {
+      images.forEach((img) => {
+        try { fs.unlinkSync(img); } catch {}
+      });
+    }
+  }
+
+  return {
+    content: textParts,
+    links: Array.from(new Set(links)),
+  };
 }
 
 // Update extractContentAndLinks to work with file paths instead of buffers
@@ -75,120 +156,14 @@ async function extractContentAndLinks(filePath: string, extension: string): Prom
     let extractedText: string[] = [];
     
     if (extension === '.pdf') {
-      // Read file buffer for pdf-parse
-      const fileBuffer = fs.readFileSync(filePath);
-      // Use pdf-parse to extract text
-      const data = await pdf(fileBuffer);
-      extractedText = [data.text];
-      // Extract URLs from the text using regex
-      const urlRegex = /https?:\/\/[\w\-._~:/?#[\]@!$&'()*+,;=%]+/gi;
-      let textLinks: string[] = [];
-      try {
-        textLinks = data.text && typeof data.text === 'string' ? (data.text.match(urlRegex) || []) : [];
-      } catch (regexError) {
-        console.warn('Text regex matching error:', regexError);
-        textLinks = [];
-      }
-      // Use get-pdf-urls to extract all (including hidden/annotation) links
-      let annotationLinks: string[] = [];
-      try {
-        annotationLinks = await new Promise((resolve, reject) => {
-          try {
-            pdfUtil.pdfToText(filePath, (err: any, data: string | null) => {
-              if (err) {
-                console.warn('pdf-to-text error:', err);
-                resolve([]);
-              } else {
-                // Extract URLs from the extracted text
-                if(data){
-                  const urlRegex = /https?:\/\/[\w\-._~:/?#[\]@!$&'()*+,;=%]+/gi;
-                  const urls = data && typeof data === 'string' ? (data.match(urlRegex) || []) : [];
-                  resolve(urls);
-                }else{
-                  resolve([]);
-                }
-              }
-            });
-          } catch (getPdfUrlsError) {
-            console.warn('get-pdf-urls execution error:', getPdfUrlsError);
-            resolve([]);
-          }
-        });
-        await new Promise(waiting => setTimeout(waiting, 100));
-      } catch (annotationError) {
-        console.warn('Annotation links extraction failed:', annotationError);
-        annotationLinks = [];
-      }
-      // Use pdf-lib to extract annotation/hidden links from the file
-      let pdfLibLinks: string[] = await extractPdfLibLinks(filePath);
-      // Merge and deduplicate links
-      extractedLinks = Array.from(new Set([
-        ...textLinks,
-        ...annotationLinks,
-        ...pdfLibLinks
-      ]));
-      // OCR fallback if all extracted text is empty or whitespace
-      if (extractedText.join('').trim() === '') {
-        extractedText = [];
-        const density = 200;
-        let pdfDoc;
-        try {
-          pdfDoc = await PDFDocument.load(fileBuffer);
-        } catch (pdfLibError) {
-          console.warn('PDFDocument.load error:', pdfLibError);
-          return { content: extractedText, links: extractedLinks };
-        }
-        const numPages = pdfDoc.getPageCount();
-        let allImageFiles: string[] = [];
-
-        for (let pageNum = 0; pageNum < numPages; pageNum++) {
-          const page = pdfDoc.getPage(pageNum);
-          const { width, height } = page.getSize(); // in points
-          const pixelWidth = Math.round(width * (density / 72));
-          const pixelHeight = Math.round(height * (density / 72));
-
-          const pdf2pic = pdf2picFromPath(filePath, {
-            density,
-            format: 'jpeg',
-            width: pixelWidth,
-            height: pixelHeight,
-            saveFilename: path.basename(filePath, path.extname(filePath)) + `_${pageNum + 1}`,
-            savePath: path.dirname(filePath),
-          });
-
-          const output = await pdf2pic(pageNum + 1); // pdf2pic is 1-based
-          if (output && output.path) {
-            allImageFiles.push(output.path);
-          }
-        }
-        const ocrResults = await Promise.all(
-          allImageFiles.map(imgPath =>
-            Tesseract.recognize(imgPath, 'eng').then(({ data: { text } }) => text)
-          )
-        );
-        extractedText.push(...ocrResults);
-        // Extract URLs from OCR text
-        let ocrLinks: string[] = [];
-        try {
-          const ocrText = ocrResults.join('\n');
-          ocrLinks = ocrText && typeof ocrText === 'string' ? (ocrText.match(urlRegex) || []) : [];
-        } catch (ocrRegexError) {
-          console.warn('OCR regex matching error:', ocrRegexError);
-          ocrLinks = [];
-        }
-        extractedLinks = Array.from(new Set([
-          ...extractedLinks,
-          ...ocrLinks
-        ]));
-        for (const imgPath of allImageFiles) {
-          try { fs.unlinkSync(imgPath); } catch {}
-        }
-      }
+      const pdfResult = await extractPdfContent(filePath);
+      extractedText = pdfResult.content;
+      extractedLinks = pdfResult.links;
     } else if (extension === '.docx' || extension === '.doc') {
       const fileBuffer = fs.readFileSync(filePath);
       const result = await mammoth.extractRawText({ buffer: fileBuffer });
       extractedText = [result.value];
-      const urlRegex = /https?:\/\/[\w\-._~:/?#[\]@!$&'()*+,;=%]+/gi;
+      const urlRegex = URL_REGEX;
       try {
         extractedLinks = result.value && typeof result.value === 'string' ? (result.value.match(urlRegex) || []) : [];
       } catch (docxRegexError) {
@@ -198,7 +173,7 @@ async function extractContentAndLinks(filePath: string, extension: string): Prom
     } else if (extension === '.txt') {
       const text = fs.readFileSync(filePath, 'utf-8');
       extractedText = [text];
-      const urlRegex = /https?:\/\/[\w\-._~:/?#[\]@!$&'()*+,;=%]+/gi;
+      const urlRegex = URL_REGEX;
       try {
         extractedLinks = text && typeof text === 'string' ? (text.match(urlRegex) || []) : [];
       } catch (txtRegexError) {
@@ -208,7 +183,7 @@ async function extractContentAndLinks(filePath: string, extension: string): Prom
     } else {
       const text = fs.readFileSync(filePath, 'utf-8');
       extractedText = [text];
-      const urlRegex = /https?:\/\/[\w\-._~:/?#[\]@!$&'()*+,;=%]+/gi;
+      const urlRegex = URL_REGEX;
       try {
         extractedLinks = text && typeof text === 'string' ? (text.match(urlRegex) || []) : [];
       } catch (defaultRegexError) {
@@ -263,9 +238,12 @@ export const uploadFile = async (req: Request, res: Response) => {
     if (!extractedData.content || extractedData.content.length === 0) {
       return res.status(500).json({ message: 'Unable to process this file. Please check the file type and content.'});
     }
-    
-    if(extractedData.content.join("").trim() == ''){
-      return res.status(500).json({ message: 'Unable to process this file. Please check the file type and content.'});
+
+    const joinedContent = extractedData.content.join("").trim();
+    const linkCount = extractedData.links?.length || 0;
+
+    if (joinedContent.length === 0 && linkCount === 0) {
+      return res.status(500).json({ message: 'Unable to extract meaningful content from this file. The file may be empty, scanned, or corrupted.'});
     }
     
     const content = extractedData.content.join('\n');
