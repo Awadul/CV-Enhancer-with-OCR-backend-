@@ -4,7 +4,7 @@
   "main": "dist/app.js",
   "scripts": {
     "start": "ts-node src/app.ts",
-    "build": "tsc",
+    "build": "tsc && npx puppeteer browsers install chrome",
     "dev": "nodemon src/app.ts"
   },
   "dependencies": {
