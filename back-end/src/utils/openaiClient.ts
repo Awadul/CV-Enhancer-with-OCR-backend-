@@ -10,7 +10,21 @@ export const sendToOpenAI = async (content: string) => {
   const personalInfoPromise = openai.chat.completions.create({
     model: 'gpt-4o',
     messages: [
-      { role: 'system', content: `You are pdf parser. Extract all information from pdf. If don't mention about required information, don't need fill in that field. Find only personal links in pdf. Output only JSON, no explanation.
+      { role: 'system', content: `You are pdf parser. Extract all information from pdf. For the "summary" field, if the CV contains a professional summary, extract it. If it does NOT contain a summary, you MUST generate a professional summary in the FIRST PERSON based on their experience and skills.
+
+Summary Requirements:
+- Write as if the candidate is introducing themselves.
+- Use "I" naturally and professionally.
+- Do NOT use the candidate's name anywhere in the summary.
+- Avoid phrases such as "This candidate", "He is", or other third-person references.
+- Focus on technical expertise, project impact, problem-solving ability, and career interests.
+- Make the writing sound authentic and human rather than AI-generated.
+- Avoid generic buzzwords and exaggerated claims.
+- Keep the tone confident, concise, and professional.
+
+For the "title" field, extract the candidate's professional title from the CV. If it is NOT explicitly mentioned, you MUST generate a concise professional title (e.g., "Software Engineer", "Data Scientist") that best represents their experience to showcase the position the candidate is applying for.
+
+For all other fields, if they are not mentioned, don't fill them in. Find only personal links in pdf. Output only JSON, no explanation.
 
         JSON Format 
         {
@@ -96,11 +110,12 @@ export const sendToOpenAI = async (content: string) => {
         JSON Format 
         "projects": [
           {
-            "project_name": "",
-            "organization": "",
-            "start_date":"",
-            "end_date": yyyy-mm,
-            "description": yyyy-mm,
+            "project_name": "Project Name",
+            "organization": "Company or Personal",
+            "start_date": "yyyy-mm",
+            "end_date": "yyyy-mm",
+            "description": "Short description",
+            "technologies": ["Tech 1", "Tech 2"]
           }
         ]`},
       { role: 'user', content: `Here is the content of the pdf:\n${content}` },
