@@ -268,3 +268,25 @@ export const uploadFile = async (req: Request, res: Response) => {
     }
   }
 };
+
+export const parseText = async (req: Request, res: Response) => {
+  try {
+    const { text } = req.body;
+    
+    if (!text || text.trim() === '') {
+      return res.status(400).json({ message: 'No text provided' });
+    }
+
+    console.log("Sending raw wizard text to OpenAI ...")
+    // Prepend a small directive so the AI knows this is a brain-dump/wizard input
+    const fullContent = "The following is raw user input from a CV creation wizard. Please format it into a professional CV Data JSON structure:\n\n" + text;
+    
+    const result = await sendToOpenAI(fullContent);
+    console.log("OpenAI Processing Completed.")
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Error parsing text:', error);
+    res.status(500).json({ message: 'Internal server error', error: (error as Error).message });
+  }
+};

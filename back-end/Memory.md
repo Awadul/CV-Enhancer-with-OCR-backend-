@@ -53,3 +53,12 @@ This file serves as a persistent memory record of key architectural decisions, r
   - [20260625204500_create_saved_cvs.sql](file:///d:/CV%20Customizer%20App/supabase/migrations/20260625204500_create_saved_cvs.sql): Table setup for saving multiple CV projects.
 - **Rule**: Do not create or retain redundant files (like `supabase_schema.sql` at the project root). Keep the database definitions isolated strictly to the `supabase` folder.
 
+---
+
+## 5. OpenAI Parsing Pipeline (Start From Scratch)
+
+### Architecture
+- To support the "Start from Scratch" AI wizard, we added a dedicated endpoint: `POST /file/parse-text`.
+- **Logic**: This endpoint receives plain text context (e.g., role, experience level, raw unstructured user text) and passes it to the OpenAI API using the `gpt-4o-mini` model.
+- **Constraint**: The response from OpenAI MUST conform exactly to the strict `CVData` JSON schema expected by the frontend. We enforce this using system instructions dictating a strict JSON response format (`response_format: { type: 'json_object' }`).
+- **File**: Implemented in [fileController.ts](file:///d:/CV%20Customizer%20App/CV-Enhancer-with-OCR-backend-/back-end/src/controllers/fileController.ts) alongside the existing PDF OCR extraction logic.
