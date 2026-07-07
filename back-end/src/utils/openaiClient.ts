@@ -210,4 +210,139 @@ For all other fields, if they are not mentioned, don't fill them in. Find only p
     projects: result_project.projects || [],
     skills: result_skills.skills || {},
   };
+};
+
+export const sendToOpenAIForATS = async (cvContent: string, jobDescription?: string) => {
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  let jdSection = '';
+  if (jobDescription && jobDescription.trim()) {
+    jdSection = `\n\nJob Description:\n${jobDescription}`;
+  }
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an ATS (Applicant Tracking System) expert. Analyze the provided CV and optional job description.
+
+Return JSON only with this structure:
+{
+  "keywordGaps": ["list of important keywords from the JD missing in the CV"],
+  "contentSuggestions": ["list of specific suggestions to improve ATS score"],
+  "formatIssues": ["any formatting problems that hurt ATS parsing"],
+  "strengths": ["what the CV does well for ATS"],
+  "matchedKeywords": ["keywords found in both CV and JD"],
+  "missingSections": ["any critical missing sections"]
+}
+
+Rules:
+- Be specific and actionable
+- If a JD is provided, focus on keyword gaps relative to it
+- If no JD, give general ATS best-practice advice
+- Keep suggestions concise and practical`,
+      },
+      {
+        role: 'user',
+        content: `CV Content:\n${cvContent}${jdSection}`,
+      },
+    ],
+    temperature: 0.1,
+    max_tokens: 4096,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      keywordGaps: [],
+      contentSuggestions: [],
+      formatIssues: [],
+      strengths: [],
+      matchedKeywords: [],
+      missingSections: [],
+      _raw: raw,
+    };
+  }
+};
+
+export const sendToOpenAIForATSWithData = async (cvData: Record<string, unknown>, jobDescription?: string) => {
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  const cvJson = JSON.stringify(cvData, null, 2);
+
+  let jdSection = '';
+  if (jobDescription && jobDescription.trim()) {
+    jdSection = `\n\nJob Description:\n${jobDescription}`;
+  }
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an ATS (Applicant Tracking System) expert. You will receive a structured CV JSON (already parsed) and an optional job description.
+
+Your task is to analyze the CV content against ATS best practices and the job description (if provided).
+
+The CV data is already structured, so focus your analysis on:
+1. Whether the content in each section is optimized for the target role
+2. Missing keywords from the job description
+3. Whether experience descriptions use strong action verbs and quantified achievements
+4. Whether the skills section covers technologies mentioned in the JD
+5. Overall content quality and completeness
+
+Return JSON only with this structure:
+{
+  "keywordGaps": ["list of important keywords from the JD missing in the CV"],
+  "contentSuggestions": ["list of specific suggestions to improve ATS score based on the structured data"],
+  "formatIssues": ["any formatting or structural problems"],
+  "strengths": ["what the CV does well for ATS"],
+  "matchedKeywords": ["keywords found in both CV and JD"],
+  "missingSections": ["any critical missing sections"]
+}
+
+Rules:
+- Be specific and actionable — reference actual skills, experience entries, or sections
+- If a JD is provided, do deep keyword gap analysis against it
+- If no JD, give general ATS best-practice advice based on the structured fields
+- Keep suggestions concise and practical`,
+      },
+      {
+        role: 'user',
+        content: `Structured CV Data (JSON):\n${cvJson}${jdSection}`,
+      },
+    ],
+    temperature: 0.1,
+    max_tokens: 4096,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      keywordGaps: [],
+      contentSuggestions: [],
+      formatIssues: [],
+      strengths: [],
+      matchedKeywords: [],
+      missingSections: [],
+      _raw: raw,
+    };
+  }
 }; 
