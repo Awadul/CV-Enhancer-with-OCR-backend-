@@ -210,4 +210,736 @@ For all other fields, if they are not mentioned, don't fill them in. Find only p
     projects: result_project.projects || [],
     skills: result_skills.skills || {},
   };
+};
+
+export const sendToOpenAIForATS = async (cvContent: string, jobDescription?: string) => {
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  let jdSection = '';
+  if (jobDescription && jobDescription.trim()) {
+    jdSection = `\n\nJob Description:\n${jobDescription}`;
+  }
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an ATS (Applicant Tracking System) expert. Analyze the provided CV and optional job description.
+
+Return JSON only with this structure:
+{
+  "keywordGaps": ["list of important keywords from the JD missing in the CV"],
+  "contentSuggestions": ["list of specific suggestions to improve ATS score"],
+  "formatIssues": ["any formatting problems that hurt ATS parsing"],
+  "strengths": ["what the CV does well for ATS"],
+  "matchedKeywords": ["keywords found in both CV and JD"],
+  "missingSections": ["any critical missing sections"]
+}
+
+Rules:
+- Be specific and actionable
+- If a JD is provided, focus on keyword gaps relative to it
+- If no JD, give general ATS best-practice advice
+- Keep suggestions concise and practical`,
+      },
+      {
+        role: 'user',
+        content: `CV Content:\n${cvContent}${jdSection}`,
+      },
+    ],
+    temperature: 0.1,
+    max_tokens: 4096,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      keywordGaps: [],
+      contentSuggestions: [],
+      formatIssues: [],
+      strengths: [],
+      matchedKeywords: [],
+      missingSections: [],
+      _raw: raw,
+    };
+  }
+};
+
+// Resume Polish
+export const sendToOpenAIForResumePolish = async (cvData: Record<string, unknown>) => {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const cvJson = JSON.stringify(cvData, null, 2);
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are a professional resume writer and career coach. Analyze the structured CV data and provide specific, actionable suggestions to improve each section.
+
+For each suggestion, provide:
+- The section and field it applies to
+- The current content
+- An improved version
+- A brief reason for the change
+
+Focus on:
+1. Stronger action verbs
+2. Quantified achievements (numbers, percentages, metrics)
+3. Clearer impact statements
+4. Better keyword optimization
+5. Removing filler words and redundancy
+6. Improving readability and conciseness
+
+Return JSON only with this structure:
+{
+  "suggestions": [
+    {
+      "section": "experience",
+      "field": "description",
+      "itemIndex": 0,
+      "itemLabel": "Software Engineer at Google",
+      "current": "Worked on the search team",
+      "improved": "Led search algorithm optimization serving 10M+ daily queries, improving relevance by 23%",
+      "reason": "Added quantified achievement and stronger action verb"
+    }
+  ]
+}
+
+Rules:
+- Be specific to THIS candidate's actual content
+- Only suggest changes that genuinely improve the content
+- Keep suggestions practical and implementable
+- If a section is already strong, don't force suggestions
+- Aim for 5-10 high-impact suggestions, not 30 minor ones`,
+      },
+      {
+        role: 'user',
+        content: `Structured CV Data (JSON):\n${cvJson}`,
+      },
+    ],
+    temperature: 0.3,
+    max_tokens: 4096,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { suggestions: [], _raw: raw };
+  }
+};
+
+// Skill Gap Analysis
+export const sendToOpenAIForSkillGap = async (cvData: Record<string, unknown>, jobDescription: string) => {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const cvJson = JSON.stringify(cvData, null, 2);
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are a career analyst specializing in skill gap analysis. Compare the candidate's skills from their CV against the job description and identify gaps.
+
+Return JSON only with this structure:
+{
+  "matchPercentage": 75,
+  "matchedSkills": ["skills the candidate has that match the job"],
+  "missingSkills": ["skills required by the job that the candidate lacks"],
+  "recommendedSkills": [
+    {
+      "skill": "Skill Name",
+      "importance": "high|medium|low",
+      "reason": "Why this skill matters for this role",
+      "howToLearn": "Brief suggestion on how to acquire this skill"
+    }
+  ]
+}
+
+Rules:
+- Extract skills from BOTH the CV's skills section AND experience descriptions
+- Compare against requirements mentioned in the job description
+- Be realistic about what's truly required vs nice-to-have
+- For recommendedSkills, focus on the top 5-8 most impactful skills to learn
+- Provide actionable learning suggestions (specific courses, projects, certifications)
+- Calculate matchPercentage based on how many required skills the candidate covers`,
+      },
+      {
+        role: 'user',
+        content: `Candidate CV (JSON):\n${cvJson}\n\nJob Description:\n${jobDescription}`,
+      },
+    ],
+    temperature: 0.2,
+    max_tokens: 4096,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { matchPercentage: 0, matchedSkills: [], missingSkills: [], recommendedSkills: [], _raw: raw };
+  }
+};
+
+// Interview Prep
+export const sendToOpenAIForInterviewPrep = async (
+  cvData: Record<string, unknown>,
+  jobDescription: string,
+  jobTitle: string,
+  companyName: string
+) => {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const cvJson = JSON.stringify(cvData, null, 2);
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an expert interview coach. Generate tailored interview questions based on the candidate's CV and the specific job they're applying for.
+
+Organize questions into these categories:
+1. Technical Questions - Based on skills and experience relevant to the role
+2. Behavioral Questions - Using STAR method, tailored to their background
+3. Role-Specific Questions - About the specific position and responsibilities
+4. Company-Specific Questions - About the company and culture fit
+
+For each question, provide:
+- The question text
+- A model answer based on the candidate's actual CV experience
+- Tips for answering well
+
+Return JSON only with this structure:
+{
+  "categories": [
+    {
+      "name": "Technical Questions",
+      "questions": [
+        {
+          "question": "Can you describe your experience with [specific technology]?",
+          "answer": "Based on your CV, you could mention your work at [company] where you [specific achievement]...",
+          "tips": ["Focus on the impact you made", "Use specific numbers and metrics"]
+        }
+      ]
+    }
+  ]
+}
+
+Rules:
+- Generate 3-4 questions per category (12-16 total)
+- Model answers should reference the candidate's ACTUAL experience from their CV
+- Questions should be realistic and commonly asked in interviews
+- Tips should be actionable and specific to each question
+- Mix difficulty levels (some easy warm-ups, some challenging)
+- Include at least one question about a potential weakness or gap`,
+      },
+      {
+        role: 'user',
+        content: `Candidate CV (JSON):\n${cvJson}\n\nCompany: ${companyName}\nPosition: ${jobTitle}\n\nJob Description:\n${jobDescription}`,
+      },
+    ],
+    temperature: 0.4,
+    max_tokens: 4096,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { categories: [], _raw: raw };
+  }
+};
+
+// Salary Insights
+export const sendToOpenAIForSalaryInsights = async (
+  jobTitle: string,
+  location: string,
+  experienceLevel: string,
+  company: string
+) => {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are a compensation analyst with expertise in salary benchmarking. Provide salary insights for the specified position.
+
+Return JSON only with this structure:
+{
+  "range": {
+    "min": 75000,
+    "max": 120000,
+    "median": 95000,
+    "currency": "USD"
+  },
+  "factors": [
+    "Factor that influences this salary range (e.g., location, experience, company size)"
+  ],
+  "negotiationTips": [
+    "Specific negotiation tip for this role"
+  ],
+  "marketDemand": "high|medium|low",
+  "marketDemandExplanation": "Brief explanation of job market demand for this role",
+  "totalCompensation": "Note about benefits, equity, bonuses beyond base salary"
+}
+
+Rules:
+- Provide realistic salary ranges based on market data
+- Consider the location (cost of living adjustments)
+- Consider experience level (entry, mid, senior, lead, executive)
+- Include 3-5 factors that affect salary
+- Provide 3-5 actionable negotiation tips
+- Be honest about market demand
+- Note that these are estimates and actual salaries vary
+- Use USD as default currency unless another is specified`,
+      },
+      {
+        role: 'user',
+        content: `Position: ${jobTitle}\nCompany: ${company || 'Not specified'}\nLocation: ${location || 'Remote/Not specified'}\nExperience Level: ${experienceLevel || 'Mid-level'}`,
+      },
+    ],
+    temperature: 0.2,
+    max_tokens: 2048,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      range: { min: 0, max: 0, median: 0, currency: 'USD' },
+      factors: [],
+      negotiationTips: [],
+      marketDemand: 'unknown',
+      marketDemandExplanation: '',
+      totalCompensation: '',
+      _raw: raw,
+    };
+  }
+};
+
+// Career Roadmap
+export const sendToOpenAIForCareerRoadmap = async (
+  cvData: Record<string, unknown>,
+  targetRole: string,
+  timeline: string,
+  experienceLevel: string
+) => {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const cvJson = JSON.stringify(cvData, null, 2);
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are a senior career strategist. Based on the candidate's current CV and their career goal, create a personalized career roadmap.
+
+Return JSON only with this structure:
+{
+  "currentSummary": "Brief assessment of where the candidate is now",
+  "targetSummary": "What the target role typically looks like",
+  "milestones": [
+    {
+      "title": "Milestone title",
+      "timeline": "e.g. Months 1-3",
+      "skills": ["skill1", "skill2"],
+      "actions": ["specific action to take"],
+      "resources": [
+        {
+          "name": "Resource name",
+          "type": "course|certification|book|project|community",
+          "url": "suggested URL or search term"
+        }
+      ],
+      "completed": false
+    }
+  ],
+  "keySkillsToAcquire": [
+    {
+      "skill": "Skill name",
+      "importance": "critical|important|nice-to-have",
+      "currentLevel": "none|beginner|intermediate|advanced",
+      "targetLevel": "beginner|intermediate|advanced|expert"
+    }
+  ],
+  "potentialChallenges": ["challenge1", "challenge2"],
+  "estimatedTimeToTarget": "e.g. 12-18 months"
+}
+
+Rules:
+- Create 4-6 milestones that progressively build toward the target role
+- Skills should be specific and relevant to the actual job market
+- Resources should be real, well-known platforms (Coursera, Udemy, AWS, Google, etc.)
+- Be realistic about timeline based on experience level
+- Consider the gap between current skills and target role requirements
+- Make milestones actionable and measurable`,
+      },
+      {
+        role: 'user',
+        content: `Current CV (JSON):\n${cvJson}\n\nTarget Role: ${targetRole}\nTimeline: ${timeline}\nExperience Level: ${experienceLevel || 'Not specified'}`,
+      },
+    ],
+    temperature: 0.3,
+    max_tokens: 4096,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      currentSummary: '',
+      targetSummary: '',
+      milestones: [],
+      keySkillsToAcquire: [],
+      potentialChallenges: [],
+      estimatedTimeToTarget: '',
+      _raw: raw,
+    };
+  }
+};
+
+// Salary Comparison
+export const sendToOpenAIForSalaryComparison = async (
+  jobTitle: string,
+  locations: string[],
+  experienceLevel: string,
+  company: string
+) => {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are a compensation analyst. Compare salary ranges across the given locations for the same role.
+
+Return JSON only with this structure:
+{
+  "comparisons": [
+    {
+      "location": "Location name",
+      "range": { "min": 0, "max": 0, "median": 0, "currency": "USD" },
+      "costOfLiving": "high|medium|low",
+      "marketDemand": "high|medium|low",
+      "notes": "Brief note about this market"
+    }
+  ],
+  "bestValue": "Location with best salary-to-cost-of-living ratio",
+  "recommendation": "Overall recommendation based on the comparison"
+}
+
+Rules:
+- Provide realistic salary data for each location
+- Consider cost of living differences
+- Note remote work market conditions if relevant
+- Be specific about local market factors`,
+      },
+      {
+        role: 'user',
+        content: `Position: ${jobTitle}\nCompany: ${company || 'Not specified'}\nExperience Level: ${experienceLevel || 'Mid-level'}\n\nLocations to compare:\n${locations.map((l, i) => `${i + 1}. ${l}`).join('\n')}`,
+      },
+    ],
+    temperature: 0.2,
+    max_tokens: 3000,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { comparisons: [], bestValue: '', recommendation: '', _raw: raw };
+  }
+};
+
+// Interview Simulation
+export const sendToOpenAIForInterviewSimulation = async (
+  cvData: Record<string, unknown>,
+  jobDescription: string,
+  jobTitle: string,
+  companyName: string,
+  roundType: string
+) => {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const cvJson = JSON.stringify(cvData, null, 2);
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an expert interview conductor. Generate a set of interview questions for a specific round type.
+
+Round type: ${roundType}
+
+Generate exactly 5 questions for this round. Mix difficulty levels (2 easy, 2 medium, 1 hard).
+
+Return JSON only with this structure:
+{
+  "roundType": "${roundType}",
+  "questions": [
+    {
+      "id": 1,
+      "question": "The interview question",
+      "difficulty": "easy|medium|hard",
+      "whatToLookFor": "Brief note on what a good answer should include",
+      "modelAnswer": "A strong example answer based on the candidate's CV"
+    }
+  ]
+}
+
+Rules:
+- Questions should be realistic and commonly asked in ${roundType} rounds
+- Reference the candidate's actual experience where relevant
+- Model answers should be specific and use the STAR method where applicable
+- Keep questions focused and answerable in 2-3 minutes`,
+      },
+      {
+        role: 'user',
+        content: `Candidate CV (JSON):\n${cvJson}\n\nCompany: ${companyName}\nPosition: ${jobTitle}\n\nJob Description:\n${jobDescription}\n\nRound: ${roundType}`,
+      },
+    ],
+    temperature: 0.4,
+    max_tokens: 4096,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { roundType, questions: [], _raw: raw };
+  }
+};
+
+// Interview Feedback
+export const sendToOpenAIForInterviewFeedback = async (
+  question: string,
+  userAnswer: string,
+  modelAnswer: string,
+  whatToLookFor: string
+) => {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an expert interview coach evaluating a candidate's answer. Provide honest, constructive feedback.
+
+Return JSON only with this structure:
+{
+  "score": 7,
+  "maxScore": 10,
+  "strengths": ["What the candidate did well"],
+  "improvements": ["What could be improved"],
+  "feedback": "Overall constructive feedback paragraph",
+  "betterAnswer": "An improved version of the candidate's answer if it was weak"
+}
+
+Rules:
+- Score from 1-10 (1=terrible, 5=adequate, 7=good, 9=excellent, 10=perfect)
+- Be honest but encouraging
+- Focus on: relevance, structure (STAR), specificity, clarity, confidence
+- If the answer is good, don't force improvements
+- If the answer is weak, provide a concrete better answer
+- Keep feedback concise and actionable`,
+      },
+      {
+        role: 'user',
+        content: `Question: ${question}
+
+What to look for: ${whatToLookFor}
+
+Model answer: ${modelAnswer}
+
+Candidate's answer: ${userAnswer}
+
+Evaluate this answer and provide feedback.`,
+      },
+    ],
+    temperature: 0.3,
+    max_tokens: 2048,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { score: 0, maxScore: 10, strengths: [], improvements: [], feedback: '', betterAnswer: '', _raw: raw };
+  }
+};
+
+export const sendToOpenAIForCoverLetter = async (
+  cvData: Record<string, unknown>,
+  jobDescription: string,
+  companyName: string,
+  jobTitle: string
+) => {
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  const cvJson = JSON.stringify(cvData, null, 2);
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are a professional cover letter writer. Write a tailored cover letter for the candidate based on their CV and the job description.
+
+Guidelines:
+- Write in the first person ("I")
+- Address the hiring manager professionally (use "Dear Hiring Manager" if no name is provided)
+- Open with a strong hook that connects the candidate's background to the role
+- Highlight 2-3 specific relevant experiences or skills from the CV that match the job requirements
+- Show knowledge of the company and role
+- Close with a confident call to action
+- Keep it between 250-350 words
+- Use a professional but warm tone
+- Do NOT use generic filler phrases like "I am writing to express my interest"
+- Make each sentence count — every line should add value
+- Do NOT include the candidate's name or contact info in the letter body — just the letter content
+
+Return ONLY the cover letter text. No JSON, no explanation, no formatting markers.`,
+      },
+      {
+        role: 'user',
+        content: `Candidate CV (JSON):
+${cvJson}
+
+Company: ${companyName}
+Position: ${jobTitle}
+
+Job Description:
+${jobDescription}
+
+Write a tailored cover letter for this candidate applying to this position.`,
+      },
+    ],
+    temperature: 0.7,
+    max_tokens: 1024,
+  });
+
+  return response.choices[0].message?.content?.trim() || '';
+};
+
+export const sendToOpenAIForATSWithData = async (cvData: Record<string, unknown>, jobDescription?: string) => {
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  const cvJson = JSON.stringify(cvData, null, 2);
+
+  let jdSection = '';
+  if (jobDescription && jobDescription.trim()) {
+    jdSection = `\n\nJob Description:\n${jobDescription}`;
+  }
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an ATS (Applicant Tracking System) expert. You will receive a structured CV JSON (already parsed) and an optional job description.
+
+Your task is to analyze the CV content against ATS best practices and the job description (if provided).
+
+The CV data is already structured, so focus your analysis on:
+1. Whether the content in each section is optimized for the target role
+2. Missing keywords from the job description
+3. Whether experience descriptions use strong action verbs and quantified achievements
+4. Whether the skills section covers technologies mentioned in the JD
+5. Overall content quality and completeness
+
+Return JSON only with this structure:
+{
+  "keywordGaps": ["list of important keywords from the JD missing in the CV"],
+  "contentSuggestions": ["list of specific suggestions to improve ATS score based on the structured data"],
+  "formatIssues": ["any formatting or structural problems"],
+  "strengths": ["what the CV does well for ATS"],
+  "matchedKeywords": ["keywords found in both CV and JD"],
+  "missingSections": ["any critical missing sections"]
+}
+
+Rules:
+- Be specific and actionable — reference actual skills, experience entries, or sections
+- If a JD is provided, do deep keyword gap analysis against it
+- If no JD, give general ATS best-practice advice based on the structured fields
+- Keep suggestions concise and practical`,
+      },
+      {
+        role: 'user',
+        content: `Structured CV Data (JSON):\n${cvJson}${jdSection}`,
+      },
+    ],
+    temperature: 0.1,
+    max_tokens: 4096,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      keywordGaps: [],
+      contentSuggestions: [],
+      formatIssues: [],
+      strengths: [],
+      matchedKeywords: [],
+      missingSections: [],
+      _raw: raw,
+    };
+  }
 }; 

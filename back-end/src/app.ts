@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import fileRoutes from './routes/fileRoutes';
@@ -18,10 +19,12 @@ app.use(cors({ origin: '*'}));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ limit: '5mb', extended: true }));
 
-app.use('/', fileRoutes);
+app.use(express.static(path.join(__dirname, '../public')));
+
+app.use('/api', fileRoutes);
 
 app.get('/', (req, res) => {
-  res.send('CV Reformat Backend Running');
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // Initialize database and start server
