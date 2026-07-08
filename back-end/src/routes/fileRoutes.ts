@@ -3,6 +3,7 @@ import { uploadFile, parseText } from '../controllers/fileController';
 import { generatePDFController } from '../controllers/pdfController';
 import { checkATS } from '../controllers/atsController';
 import { searchJobsHandler } from '../controllers/jobsController';
+import { generateCoverLetter } from '../controllers/coverLetterController';
 import upload from '../middleware/multerConfig';
 
 const router = Router();
@@ -12,5 +13,6 @@ router.post('/file/parse-text', parseText);
 router.post('/pdf/generate', generatePDFController);
 router.post('/ats/check', upload.single('file'), checkATS);
 router.post('/jobs/search', searchJobsHandler);
+router.post('/cover-letter/generate', generateCoverLetter);
 
 export default router; 

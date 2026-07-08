@@ -274,6 +274,61 @@ Rules:
   }
 };
 
+export const sendToOpenAIForCoverLetter = async (
+  cvData: Record<string, unknown>,
+  jobDescription: string,
+  companyName: string,
+  jobTitle: string
+) => {
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  const cvJson = JSON.stringify(cvData, null, 2);
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are a professional cover letter writer. Write a tailored cover letter for the candidate based on their CV and the job description.
+
+Guidelines:
+- Write in the first person ("I")
+- Address the hiring manager professionally (use "Dear Hiring Manager" if no name is provided)
+- Open with a strong hook that connects the candidate's background to the role
+- Highlight 2-3 specific relevant experiences or skills from the CV that match the job requirements
+- Show knowledge of the company and role
+- Close with a confident call to action
+- Keep it between 250-350 words
+- Use a professional but warm tone
+- Do NOT use generic filler phrases like "I am writing to express my interest"
+- Make each sentence count — every line should add value
+- Do NOT include the candidate's name or contact info in the letter body — just the letter content
+
+Return ONLY the cover letter text. No JSON, no explanation, no formatting markers.`,
+      },
+      {
+        role: 'user',
+        content: `Candidate CV (JSON):
+${cvJson}
+
+Company: ${companyName}
+Position: ${jobTitle}
+
+Job Description:
+${jobDescription}
+
+Write a tailored cover letter for this candidate applying to this position.`,
+      },
+    ],
+    temperature: 0.7,
+    max_tokens: 1024,
+  });
+
+  return response.choices[0].message?.content?.trim() || '';
+};
+
 export const sendToOpenAIForATSWithData = async (cvData: Record<string, unknown>, jobDescription?: string) => {
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
