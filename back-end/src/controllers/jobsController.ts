@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { searchJobs, buildQueryFromCV } from '../utils/jobSearch';
+import OpenAI from 'openai';
 
 export async function searchJobsHandler(req: Request, res: Response) {
   try {
@@ -44,5 +45,75 @@ export async function searchJobsHandler(req: Request, res: Response) {
   } catch (error) {
     console.error('Error in job search:', error);
     res.status(500).json({ message: 'Internal server error', error: (error as Error).message });
+  }
+}
+
+export async function extractFromUrlHandler(req: Request, res: Response) {
+  try {
+    const { url } = req.body;
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ message: 'A valid URL is required' });
+    }
+
+    let html = '';
+    try {
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        redirect: 'follow',
+      });
+      if (!response.ok) {
+        return res.status(400).json({ message: `Could not fetch URL: HTTP ${response.status}` });
+      }
+      html = await response.text();
+    } catch (fetchErr) {
+      return res.status(400).json({ message: 'Could not fetch the URL. Make sure it is a valid, publicly accessible job listing URL.' });
+    }
+
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: `Extract job listing details from the HTML content. Return JSON only with this structure:
+{
+  "job_title": "",
+  "employer_name": "",
+  "job_description": "",
+  "job_city": "",
+  "job_state": "",
+  "job_apply_link": "",
+  "job_salary": "",
+  "job_employment_type": "",
+  "job_is_remote": false,
+  "job_required_skills": []
+}
+Rules:
+- Extract only what is clearly present in the page
+- If a field is not found, leave it as empty string or false
+- Do not make up information`,
+        },
+        {
+          role: 'user',
+          content: `Extract job details from this page:\n\n${html.slice(0, 15000)}`,
+        },
+      ],
+      temperature: 0.1,
+      max_tokens: 2048,
+    });
+
+    let raw = completion.choices[0].message?.content?.trim() || '{}';
+    if (raw.startsWith('```json\n')) raw = raw.slice(7);
+    if (raw.endsWith('```')) raw = raw.slice(0, -3);
+
+    const jobData = JSON.parse(raw.trim());
+    res.json({
+      job_id: `url-${Date.now()}`,
+      job_apply_link: url,
+      ...jobData,
+    });
+  } catch (error) {
+    console.error('Error extracting job from URL:', error);
+    res.status(500).json({ message: 'Failed to extract job details from URL', error: (error as Error).message });
   }
 }
