@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 
 export async function searchJobsHandler(req: Request, res: Response) {
   try {
-    const { query, location, page, numPages, cvData } = req.body;
+    const { query, location, page, numPages, cvData, country } = req.body;
 
     let searchQuery = query;
 
@@ -16,9 +16,9 @@ export async function searchJobsHandler(req: Request, res: Response) {
       return res.status(400).json({ message: 'No search query provided. Send a query string or cvData for auto-matching.' });
     }
 
-    if (location) searchQuery = `${searchQuery} in ${location}`;
+    if (location) searchQuery = `${searchQuery} ${location}`;
 
-    const result = await searchJobs(searchQuery, page || 1, numPages || 1);
+    const result = await searchJobs(searchQuery, page || 1, numPages || 1, country || 'us');
 
     if (result.status === 'ERROR') {
       return res.status(500).json({ message: 'Job search failed' });
@@ -28,7 +28,7 @@ export async function searchJobsHandler(req: Request, res: Response) {
       job_id: job.job_id,
       job_title: job.job_title,
       employer_name: job.employer_name,
-      employer_logo: job.employer_logo,
+      employer_logo: job.employer_logo || null,
       job_city: job.job_city,
       job_state: job.job_state,
       job_country: job.job_country,

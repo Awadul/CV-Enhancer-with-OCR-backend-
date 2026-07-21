@@ -3,13 +3,10 @@ import { sendToOpenAIForInterviewSimulation, sendToOpenAIForInterviewFeedback } 
 
 export const startSimulation = async (req: Request, res: Response) => {
   try {
-    const { cvData, jobDescription, jobTitle, companyName, roundType } = req.body;
+    const { cvData, jobDescription, jobTitle, companyName, roundType, topic } = req.body;
 
     if (!cvData) {
       return res.status(400).json({ message: 'cvData is required.' });
-    }
-    if (!jobDescription?.trim()) {
-      return res.status(400).json({ message: 'jobDescription is required.' });
     }
     if (!roundType?.trim()) {
       return res.status(400).json({ message: 'roundType is required.' });
@@ -17,10 +14,11 @@ export const startSimulation = async (req: Request, res: Response) => {
 
     const result = await sendToOpenAIForInterviewSimulation(
       typeof cvData === 'string' ? JSON.parse(cvData) : cvData,
-      jobDescription,
+      jobDescription || '',
       jobTitle || '',
       companyName || '',
-      roundType
+      roundType,
+      topic || ''
     );
 
     res.json(result);

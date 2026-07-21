@@ -561,28 +561,81 @@ export const sendToOpenAIForCareerRoadmap = async (
     messages: [
       {
         role: 'system',
-        content: `You are a senior career strategist. Based on the candidate's current CV and their career goal, create a personalized career roadmap.
+        content: `You are a senior career strategist. Based on the candidate's current CV and their career goal, create a personalized interactive career path visualization as a TREE with branching progression paths.
 
 Return JSON only with this structure:
 {
+  "tree": {
+    "name": "Current Role (inferred from CV, e.g. Junior Developer)",
+    "attributes": {
+      "salaryRange": "estimated range e.g. $55K-$75K",
+      "timeline": "Now",
+      "skills": ["current relevant skills from CV"],
+      "importance": "current",
+      "summary": "Brief assessment of where the candidate is now"
+    },
+    "children": [
+      {
+        "name": "Intermediate Role 1 (e.g. Developer)",
+        "attributes": {
+          "salaryRange": "$70K-$95K",
+          "timeline": "Months 1-6",
+          "skills": ["skills needed to reach this role"],
+          "importance": "intermediate",
+          "summary": "What this role involves",
+          "actions": ["specific action to reach this role"],
+          "resources": [
+            { "name": "Resource name", "type": "course|certification|book|project|community", "url": "suggested URL" }
+          ]
+        },
+        "children": [
+          {
+            "name": "Target Role (e.g. Senior Developer)",
+            "attributes": {
+              "salaryRange": "$110K-$140K",
+              "timeline": "Months 12-18",
+              "skills": ["skills for target role"],
+              "importance": "target",
+              "summary": "What the target role typically looks like",
+              "actions": ["specific action"],
+              "resources": []
+            },
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "Alternative Path Role (e.g. Specialist track)",
+        "attributes": {
+          "salaryRange": "$80K-$100K",
+          "timeline": "Months 3-9",
+          "skills": ["skills for alternative path"],
+          "importance": "alternative",
+          "summary": "An alternative route to the target",
+          "actions": ["specific action"],
+          "resources": []
+        },
+        "children": [
+          {
+            "name": "Target Role (e.g. Senior Developer)",
+            "attributes": {
+              "salaryRange": "$110K-$140K",
+              "timeline": "Months 15-20",
+              "skills": ["skills for target role"],
+              "importance": "target",
+              "summary": "What the target role typically looks like",
+              "actions": [],
+              "resources": []
+            },
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
   "currentSummary": "Brief assessment of where the candidate is now",
   "targetSummary": "What the target role typically looks like",
-  "milestones": [
-    {
-      "title": "Milestone title",
-      "timeline": "e.g. Months 1-3",
-      "skills": ["skill1", "skill2"],
-      "actions": ["specific action to take"],
-      "resources": [
-        {
-          "name": "Resource name",
-          "type": "course|certification|book|project|community",
-          "url": "suggested URL or search term"
-        }
-      ],
-      "completed": false
-    }
-  ],
+  "estimatedTimeToTarget": "e.g. 12-18 months",
   "keySkillsToAcquire": [
     {
       "skill": "Skill name",
@@ -591,17 +644,18 @@ Return JSON only with this structure:
       "targetLevel": "beginner|intermediate|advanced|expert"
     }
   ],
-  "potentialChallenges": ["challenge1", "challenge2"],
-  "estimatedTimeToTarget": "e.g. 12-18 months"
+  "potentialChallenges": ["challenge1", "challenge2"]
 }
 
 Rules:
-- Create 4-6 milestones that progressively build toward the target role
-- Skills should be specific and relevant to the actual job market
+- Create a tree with the CURRENT role as root and the TARGET role as leaf nodes
+- Include 2-4 branching paths (some intermediate roles, some alternative tracks) to show multiple ways to reach the target
+- Each node must have: salaryRange (realistic market estimate), timeline, skills array, importance (current|intermediate|alternative|target), summary
+- Leaf/target nodes and intermediate nodes may include actions and resources
 - Resources should be real, well-known platforms (Coursera, Udemy, AWS, Google, etc.)
-- Be realistic about timeline based on experience level
+- Be realistic about salary ranges and timelines based on experience level and region
 - Consider the gap between current skills and target role requirements
-- Make milestones actionable and measurable`,
+- Salary ranges should be clearly estimated market values`,
       },
       {
         role: 'user',
@@ -621,12 +675,12 @@ Rules:
     return JSON.parse(raw);
   } catch {
     return {
+      tree: { name: '', attributes: { salaryRange: '', timeline: '', skills: [], importance: 'current', summary: '' }, children: [] },
       currentSummary: '',
       targetSummary: '',
-      milestones: [],
+      estimatedTimeToTarget: '',
       keySkillsToAcquire: [],
       potentialChallenges: [],
-      estimatedTimeToTarget: '',
       _raw: raw,
     };
   }
@@ -696,7 +750,8 @@ export const sendToOpenAIForInterviewSimulation = async (
   jobDescription: string,
   jobTitle: string,
   companyName: string,
-  roundType: string
+  roundType: string,
+  topic?: string
 ) => {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const cvJson = JSON.stringify(cvData, null, 2);
@@ -734,7 +789,7 @@ Rules:
       },
       {
         role: 'user',
-        content: `Candidate CV (JSON):\n${cvJson}\n\nCompany: ${companyName}\nPosition: ${jobTitle}\n\nJob Description:\n${jobDescription}\n\nRound: ${roundType}`,
+        content: `Candidate CV (JSON):\n${cvJson}\n\nCompany: ${companyName}\nPosition: ${jobTitle}\n\n${jobDescription ? `Job Description:\n${jobDescription}` : `Topic: ${topic || 'General interview preparation'}`}\n\nRound: ${roundType}`,
       },
     ],
     temperature: 0.4,
@@ -816,12 +871,17 @@ Evaluate this answer and provide feedback.`,
   }
 };
 
+export interface CoverLetterVariant {
+  style: 'formal' | 'conversational';
+  coverLetter: string;
+}
+
 export const sendToOpenAIForCoverLetter = async (
   cvData: Record<string, unknown>,
   jobDescription: string,
   companyName: string,
   jobTitle: string
-) => {
+): Promise<CoverLetterVariant[]> => {
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
   });
@@ -830,25 +890,35 @@ export const sendToOpenAIForCoverLetter = async (
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4o',
+    response_format: { type: 'json_object' },
     messages: [
       {
         role: 'system',
-        content: `You are a professional cover letter writer. Write a tailored cover letter for the candidate based on their CV and the job description.
+        content: `You are a professional cover letter writer. Write TWO tailored cover letter variants for the candidate based on their CV and the job description.
 
-Guidelines:
+Guidelines (apply to BOTH variants):
 - Write in the first person ("I")
 - Address the hiring manager professionally (use "Dear Hiring Manager" if no name is provided)
 - Open with a strong hook that connects the candidate's background to the role
 - Highlight 2-3 specific relevant experiences or skills from the CV that match the job requirements
 - Show knowledge of the company and role
 - Close with a confident call to action
-- Keep it between 250-350 words
-- Use a professional but warm tone
+- Keep each variant between 250-350 words
 - Do NOT use generic filler phrases like "I am writing to express my interest"
 - Make each sentence count — every line should add value
 - Do NOT include the candidate's name or contact info in the letter body — just the letter content
 
-Return ONLY the cover letter text. No JSON, no explanation, no formatting markers.`,
+Variant styles:
+- "formal": Professional, polished, traditional corporate tone. Precise vocabulary, structured sentences, restrained enthusiasm.
+- "conversational": Warm, personable, approachable tone. Reads like a confident human speaking naturally while staying professional.
+
+Return a JSON object with this exact shape:
+{
+  "formal": "<formal cover letter text>",
+  "conversational": "<conversational cover letter text>"
+}
+
+Return ONLY the JSON object. No explanation, no markdown, no formatting markers.`,
       },
       {
         role: 'user',
@@ -861,14 +931,29 @@ Position: ${jobTitle}
 Job Description:
 ${jobDescription}
 
-Write a tailored cover letter for this candidate applying to this position.`,
+Write the two cover letter variants (formal and conversational) for this candidate applying to this position.`,
       },
     ],
-    temperature: 0.7,
-    max_tokens: 1024,
+    temperature: 0.8,
+    max_tokens: 2048,
   });
 
-  return response.choices[0].message?.content?.trim() || '';
+  const raw = response.choices[0].message?.content?.trim() || '{}';
+  let parsed: Record<string, string> = {};
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = {};
+  }
+
+  const formal = (parsed.formal || '').trim();
+  const conversational = (parsed.conversational || '').trim();
+
+  const variants: CoverLetterVariant[] = [];
+  if (formal) variants.push({ style: 'formal', coverLetter: formal });
+  if (conversational) variants.push({ style: 'conversational', coverLetter: conversational });
+
+  return variants;
 };
 
 export const sendToOpenAIForATSWithData = async (cvData: Record<string, unknown>, jobDescription?: string) => {
@@ -942,4 +1027,278 @@ Rules:
       _raw: raw,
     };
   }
-}; 
+};
+
+export const sendToOpenAIForLinkedInProfile = async (profileText: string) => {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are a LinkedIn profile optimization expert. You will receive a user's LinkedIn profile text (pasted by the user, not scraped).
+
+Analyze the profile across these dimensions:
+
+1. **Completeness** - What sections are present (headline, about, experience, education, skills, certifications, recommendations, languages) and what's missing
+2. **Tone & Voice** - Is it professional, first-person vs third-person, action-oriented? Does it use strong action verbs?
+3. **Keyword Density** - Does the profile include relevant industry keywords? Is it optimized for LinkedIn search?
+4. **Section-by-section improvements** - For each section, provide specific rewrites
+
+Return JSON only with this structure:
+{
+  "overallScore": <number 0-100>,
+  "completeness": {
+    "score": <number 0-100>,
+    "missingFields": ["list of missing sections"],
+    "presentFields": ["list of present sections"]
+  },
+  "tone": {
+    "score": <number 0-100>,
+    "assessment": "<brief assessment of tone>",
+    "suggestions": ["actionable tone improvement suggestions"]
+  },
+  "keywords": {
+    "score": <number 0-100>,
+    "industryKeywords": ["keywords found"],
+    "missingKeywords": ["recommended keywords not found"],
+    "densityNote": "<summary of keyword usage>"
+  },
+  "sectionSuggestions": [
+    {
+      "section": "Headline",
+      "currentText": "excerpt of current content",
+      "improvedText": "optimized version",
+      "reason": "why this change helps"
+    }
+  ]
+}
+
+Rules:
+- Be specific and actionable — reference actual profile content
+- Suggest realistic improvements that respect the user's actual experience
+- For the score, be honest and constructive (even great profiles can improve)
+- Focus on LinkedIn best practices: SEO discoverability, professional branding, and engagement
+- NEVER fabricate experience or qualifications the user doesn't have`,
+      },
+      {
+        role: 'user',
+        content: `LinkedIn Profile Content:\n\n${profileText}`,
+      },
+    ],
+    temperature: 0.2,
+    max_tokens: 4096,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      overallScore: 0,
+      completeness: { score: 0, missingFields: [], presentFields: [] },
+      tone: { score: 0, assessment: '', suggestions: [] },
+      keywords: { score: 0, industryKeywords: [], missingKeywords: [], densityNote: '' },
+      sectionSuggestions: [],
+    };
+  }
+};
+
+export const sendToOpenAIForCVTailor = async (
+  cvData: Record<string, unknown>,
+  jobDescription: string,
+  jobTitle: string
+) => {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const cvJson = JSON.stringify(cvData, null, 2);
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are a professional CV tailoring expert. Your job is to rewrite a candidate's CV to better match a specific job description.
+
+Analyze the CV data and job description, then return a tailored version with specific edits. Focus on:
+
+1. **Summary** - Rewrite the professional summary to include keywords and themes from the job description
+2. **Skills** - Reorder skill categories so the most relevant ones appear first; add relevant keywords the candidate likely has but didn't list
+3. **Experience** - Rewrite bullet points to use terminology and language from the job description, emphasizing matching achievements
+4. **Projects** - Add relevant keywords from the job description where appropriate
+
+Rules:
+- NEVER fabricate experience, education, or certifications the candidate doesn't have
+- Only rephrase and reorder existing content
+- Add relevant keywords only where they plausibly apply to the candidate's actual background
+- Keep the same overall structure and sections
+- Be specific to THIS job description - generic improvements are not useful
+- Aim for 3-8 high-impact suggestions
+
+Return JSON only with this structure:
+{
+  "summary": "Rewritten professional summary matching the job description language and keywords",
+  "suggestions": [
+    {
+      "section": "experience",
+      "field": "description",
+      "itemIndex": 0,
+      "itemLabel": "Job Title at Company",
+      "current": "original bullet point",
+      "improved": "tailored bullet point with job-relevant keywords",
+      "reason": "Added [keyword] and [keyword] that match the job requirements"
+    }
+  ]
+}
+
+For skill reordering, use section "skills", field "skills", itemIndex matching the category index, and put the reordered/expanded skills in "improved".`,
+      },
+      {
+        role: 'user',
+        content: `Job Title: ${jobTitle}\n\nJob Description:\n${jobDescription}\n\nCandidate CV (JSON):\n${cvJson}`,
+      },
+    ],
+    temperature: 0.3,
+    max_tokens: 4096,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { summary: '', suggestions: [] };
+  }
+};
+
+// Keyword Optimizer
+export const sendToOpenAIForKeywordOptimization = async (
+  cvData: Record<string, unknown>,
+  jobDescription: string
+) => {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const cvJson = JSON.stringify(cvData, null, 2);
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an ATS keyword optimization expert. Analyze the candidate's CV against the job description and extract a comprehensive keyword map.
+
+Return JSON only with this structure:
+{
+  "overallMatchScore": 72,
+  "totalJDKeywords": 45,
+  "matchedKeywords": 32,
+  "missingCritical": [
+    {
+      "keyword": "Kubernetes",
+      "importance": "critical",
+      "category": "technical",
+      "frequencyInJD": 3,
+      "suggestedSections": ["skills", "experience"],
+      "contextInJD": "Required for container orchestration in production environments"
+    }
+  ],
+  "missingImportant": [
+    {
+      "keyword": "CI/CD",
+      "importance": "important",
+      "category": "technical",
+      "frequencyInJD": 2,
+      "suggestedSections": ["experience", "projects"],
+      "contextInJD": "Experience with automated deployment pipelines"
+    }
+  ],
+  "missingNiceToHave": [
+    {
+      "keyword": "GraphQL",
+      "importance": "nice-to-have",
+      "category": "technical",
+      "frequencyInJD": 1,
+      "suggestedSections": ["skills"],
+      "contextInJD": "Familiarity with GraphQL APIs preferred"
+    }
+  ],
+  "matchedKeywordDetails": [
+    {
+      "keyword": "React",
+      "category": "technical",
+      "foundInCVSections": ["skills", "experience"],
+      "frequencyInJD": 2
+    }
+  ],
+  "keywordCategories": {
+    "technical": { "total": 25, "matched": 18, "missing": 7 },
+    "soft": { "total": 8, "matched": 6, "missing": 2 },
+    "domain": { "total": 5, "matched": 3, "missing": 2 },
+    "tools": { "total": 7, "matched": 5, "missing": 2 }
+  },
+  "placementSuggestions": [
+    {
+      "keyword": "Kubernetes",
+      "bestSection": "skills",
+      "exampleIntegration": "Add 'Kubernetes' to your 'DevOps & Cloud' skills category"
+    },
+    {
+      "keyword": "CI/CD",
+      "bestSection": "experience",
+      "exampleIntegration": "Update your experience bullet: 'Implemented CI/CD pipelines using GitHub Actions...'"
+    }
+  ],
+  "quickWins": [
+    "Add 'Agile/Scrum' to skills (mentioned 3x in JD, easy to add)",
+    "Include 'REST APIs' in experience descriptions (matches your backend work)"
+  ]
+}
+
+Rules:
+- Parse the JD thoroughly for ALL keywords: technical skills, tools, methodologies, soft skills, domain terms
+- Categorize each keyword: technical (languages, frameworks, platforms), soft (communication, leadership), domain (industry-specific), tools (software, platforms)
+- Assess importance based on frequency in JD, explicit "required"/"must have" language, and context
+- For each missing keyword, suggest the BEST CV section(s) to add it (skills, experience, projects, summary, certifications)
+- Provide specific, actionable integration examples
+- Calculate overall match score as (matchedKeywords / totalJDKeywords) * 100
+- Include "quick wins" - keywords easy to add that have high JD frequency
+- Be comprehensive but practical - aim for 30-50 total JD keywords identified`,
+      },
+      {
+        role: 'user',
+        content: `Candidate CV (JSON):\n${cvJson}\n\nJob Description:\n${jobDescription}`,
+      },
+    ],
+    temperature: 0.1,
+    max_tokens: 4096,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      overallMatchScore: 0,
+      totalJDKeywords: 0,
+      matchedKeywords: 0,
+      missingCritical: [],
+      missingImportant: [],
+      missingNiceToHave: [],
+      matchedKeywordDetails: [],
+      keywordCategories: { technical: { total: 0, matched: 0, missing: 0 }, soft: { total: 0, matched: 0, missing: 0 }, domain: { total: 0, matched: 0, missing: 0 }, tools: { total: 0, matched: 0, missing: 0 } },
+      placementSuggestions: [],
+      quickWins: [],
+      _raw: raw,
+    };
+  }
+};

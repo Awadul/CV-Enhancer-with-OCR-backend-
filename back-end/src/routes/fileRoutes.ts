@@ -10,6 +10,9 @@ import { generateInterviewPrep } from '../controllers/interviewPrepController';
 import { startSimulation, getFeedback } from '../controllers/interviewSimulationController';
 import { getSalaryInsights, compareSalaries } from '../controllers/salaryInsightsController';
 import { generateCareerRoadmap } from '../controllers/careerRoadmapController';
+import { tailorCV } from '../controllers/cvTailorController';
+import { analyzeLinkedInProfile } from '../controllers/linkedinController';
+import { optimizeKeywords } from '../controllers/keywordOptimizerController';
 import upload from '../middleware/multerConfig';
 
 const router = Router();
@@ -29,5 +32,8 @@ router.post('/interview/feedback', getFeedback);
 router.post('/salary/insights', getSalaryInsights);
 router.post('/salary/compare', compareSalaries);
 router.post('/career/roadmap', generateCareerRoadmap);
+router.post('/cv/tailor', tailorCV);
+router.post('/linkedin/analyze', upload.single('file'), analyzeLinkedInProfile);
+router.post('/ats/keyword-optimize', optimizeKeywords);
 
 export default router; 
