@@ -15,7 +15,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(cors({ origin: '*'}));
+app.use(cors({ origin: ['https://mynext9to5.com', 'https://www.mynext9to5.com', 'http://localhost:5173'] }));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ limit: '5mb', extended: true }));
 
