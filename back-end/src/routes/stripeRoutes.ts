@@ -183,7 +183,7 @@ router.post('/stripe/webhook', async (req: Request, res: Response) => {
   const sig = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-  console.log('[Webhook] Received Stripe webhook event notification.');
+  console.log(`[Webhook] Received Stripe webhook event notification. Target Supabase URL: ${process.env.SUPABASE_URL}`);
 
   if (!webhookSecret) {
     console.error('[Webhook Error] STRIPE_WEBHOOK_SECRET is not configured on the server.');
