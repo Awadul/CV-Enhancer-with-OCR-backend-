@@ -90,7 +90,7 @@ router.post('/stripe/create-checkout', async (req: Request, res: Response) => {
             stripe_customer_id: customerId,
             plan_id: 'starter',
             status: 'active',
-          });
+          }, { onConflict: 'user_id' });
         } catch (dbErr) {
           console.warn('Database upsert failed (non-blocking for checkout):', dbErr);
         }
@@ -252,15 +252,23 @@ router.post('/stripe/webhook', async (req: Request, res: Response) => {
           const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
           if (uuidRegex.test(userId)) {
             console.log(`[Webhook] Upserting subscription record into Supabase for user_id: ${userId}`);
-            const { error: dbErr } = await sb.from('user_subscriptions').upsert({
+            
+            const upsertPayload: any = {
               user_id: userId,
               stripe_customer_id: customerId,
               stripe_subscription_id: subscriptionId,
               plan_id: planId,
               status: status,
-              current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-              current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
-            });
+            };
+
+            if (subscription.current_period_start) {
+              upsertPayload.current_period_start = new Date(subscription.current_period_start * 1000).toISOString();
+            }
+            if (subscription.current_period_end) {
+              upsertPayload.current_period_end = new Date(subscription.current_period_end * 1000).toISOString();
+            }
+
+            const { error: dbErr } = await sb.from('user_subscriptions').upsert(upsertPayload, { onConflict: 'user_id' });
 
             if (dbErr) {
               throw new Error(`Database upsert failed: ${dbErr.message} (Code: ${dbErr.code})`);
@@ -314,12 +322,19 @@ router.post('/stripe/webhook', async (req: Request, res: Response) => {
           }
 
           console.log(`[Webhook] Updating subscription record in Supabase for user_id: ${userSub.user_id}`);
-          const { error: updateErr } = await sb.from('user_subscriptions').update({
+          const updatePayload: any = {
             plan_id: subscription.status === 'active' ? planId : 'starter',
             status: status,
-            current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-            current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
-          }).eq('user_id', userSub.user_id);
+          };
+
+          if (subscription.current_period_start) {
+            updatePayload.current_period_start = new Date(subscription.current_period_start * 1000).toISOString();
+          }
+          if (subscription.current_period_end) {
+            updatePayload.current_period_end = new Date(subscription.current_period_end * 1000).toISOString();
+          }
+
+          const { error: updateErr } = await sb.from('user_subscriptions').update(updatePayload).eq('user_id', userSub.user_id);
 
           if (updateErr) {
             throw new Error(`Database update failed: ${updateErr.message}`);
