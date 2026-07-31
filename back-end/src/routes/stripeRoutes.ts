@@ -183,90 +183,160 @@ router.post('/stripe/webhook', async (req: Request, res: Response) => {
   const sig = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
+  console.log('[Webhook] Received Stripe webhook event notification.');
+
   if (!webhookSecret) {
+    console.error('[Webhook Error] STRIPE_WEBHOOK_SECRET is not configured on the server.');
     return res.status(500).json({ error: 'Webhook secret not configured' });
   }
 
   if (!sig) {
+    console.error('[Webhook Error] stripe-signature header is missing in request.');
     return res.status(400).json({ error: 'Stripe signature is missing' });
   }
 
   let event;
   try {
     event = getStripe().webhooks.constructEvent(req.body, sig, webhookSecret);
+    console.log(`[Webhook] Event signature verified successfully. Event ID: ${event.id}, Type: ${event.type}`);
   } catch (err: any) {
-    console.error('Webhook signature verification failed:', err.message);
+    console.error('[Webhook Error] Event signature verification failed:', err.message);
     return res.status(400).json({ error: `Webhook Error: ${err.message}` });
   }
 
   const sb = getSupabase();
 
-  switch (event.type) {
-    case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.Checkout.Session;
-      const userId = session.metadata?.userId;
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const userId = session.metadata?.userId;
+        console.log(`[Webhook] Processing checkout.session.completed. userId: ${userId}, customerId: ${session.customer}, subscription: ${session.subscription}`);
 
-      if (userId && session.subscription) {
-        const subscriptionId = typeof session.subscription === 'string'
-          ? session.subscription
-          : session.subscription.id;
+        if (userId && session.subscription) {
+          const subscriptionId = typeof session.subscription === 'string'
+            ? session.subscription
+            : session.subscription.id;
 
-        const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
-        const planId = subscription.items.data[0]?.price?.metadata?.plan_id || 'pro';
+          console.log(`[Webhook] Retrieving subscription details for ID: ${subscriptionId}`);
+          const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
+          console.log(`[Webhook] Stripe Subscription retrieved. Status is: "${subscription.status}"`);
 
-        const customerId = typeof session.customer === 'string'
-          ? session.customer
-          : session.customer?.id || '';
+          let planId = subscription.items.data[0]?.price?.metadata?.plan_id || 'pro';
+          const allowedPlans = ['starter', 'pro', 'premium', 'enterprise'];
+          if (!allowedPlans.includes(planId)) {
+            const originalPlanId = planId;
+            if (planId.toLowerCase().includes('pro')) planId = 'pro';
+            else if (planId.toLowerCase().includes('premium')) planId = 'premium';
+            else if (planId.toLowerCase().includes('enterprise')) planId = 'enterprise';
+            else planId = 'pro';
+            console.log(`[Webhook] plan_id "${originalPlanId}" normalized to "${planId}" to satisfy DB constraints.`);
+          }
 
-        const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-        if (uuidRegex.test(userId)) {
-          await sb.from('user_subscriptions').upsert({
-            user_id: userId,
-            stripe_customer_id: customerId,
-            stripe_subscription_id: subscriptionId,
-            plan_id: planId,
-            status: subscription.status,
-            current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-            current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
-          });
+          let status = subscription.status;
+          const allowedStatuses = ['active', 'canceled', 'past_due', 'trialing'];
+          if (!allowedStatuses.includes(status)) {
+            const originalStatus = status;
+            if (status === 'incomplete' || status === 'unpaid' || status === 'incomplete_expired' || status === 'paused') {
+              status = 'past_due';
+            } else {
+              status = 'active';
+            }
+            console.log(`[Webhook] status "${originalStatus}" normalized to "${status}" to satisfy DB constraints.`);
+          }
+
+          const customerId = typeof session.customer === 'string'
+            ? session.customer
+            : session.customer?.id || '';
+
+          const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+          if (uuidRegex.test(userId)) {
+            console.log(`[Webhook] Upserting subscription record into Supabase for user_id: ${userId}`);
+            const { error: dbErr } = await sb.from('user_subscriptions').upsert({
+              user_id: userId,
+              stripe_customer_id: customerId,
+              stripe_subscription_id: subscriptionId,
+              plan_id: planId,
+              status: status,
+              current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
+              current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+            });
+
+            if (dbErr) {
+              throw new Error(`Database upsert failed: ${dbErr.message} (Code: ${dbErr.code})`);
+            }
+            console.log('[Webhook] Database upsert completed successfully.');
+          } else {
+            console.warn(`[Webhook] User ID "${userId}" is not a valid UUID. Skipping database upsert.`);
+          }
         } else {
-          console.log(`Webhook: Mock user checkout completed for: ${userId}. Bypassing database sync.`);
+          console.warn('[Webhook] Missing userId metadata or subscription in checkout session event data.');
         }
+        break;
       }
-      break;
-    }
 
-    case 'customer.subscription.updated':
-    case 'customer.subscription.deleted': {
-      const subscription = event.data.object as Stripe.Subscription;
-      const customerId = typeof subscription.customer === 'string'
-        ? subscription.customer
-        : subscription.customer.id;
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object as Stripe.Subscription;
+        const customerId = typeof subscription.customer === 'string'
+          ? subscription.customer
+          : subscription.customer.id;
+        console.log(`[Webhook] Processing subscription status update. Customer ID: ${customerId}, New Status: "${subscription.status}"`);
 
-      try {
-        const { data: userSub } = await sb
+        const { data: userSub, error: findErr } = await sb
           .from('user_subscriptions')
           .select('user_id')
           .eq('stripe_customer_id', customerId)
           .maybeSingle();
 
+        if (findErr) {
+          throw new Error(`Failed to query user subscription: ${findErr.message}`);
+        }
+
         if (userSub?.user_id) {
-          const planId = subscription.items.data[0]?.price?.metadata?.plan_id || 'starter';
-          await sb.from('user_subscriptions').update({
+          let planId = subscription.items.data[0]?.price?.metadata?.plan_id || 'starter';
+          const allowedPlans = ['starter', 'pro', 'premium', 'enterprise'];
+          if (!allowedPlans.includes(planId)) {
+            if (planId.toLowerCase().includes('pro')) planId = 'pro';
+            else if (planId.toLowerCase().includes('premium')) planId = 'premium';
+            else if (planId.toLowerCase().includes('enterprise')) planId = 'enterprise';
+            else planId = 'starter';
+          }
+
+          let status = subscription.status;
+          const allowedStatuses = ['active', 'canceled', 'past_due', 'trialing'];
+          if (!allowedStatuses.includes(status)) {
+            if (status === 'incomplete' || status === 'unpaid' || status === 'incomplete_expired' || status === 'paused') {
+              status = 'past_due';
+            } else {
+              status = 'active';
+            }
+          }
+
+          console.log(`[Webhook] Updating subscription record in Supabase for user_id: ${userSub.user_id}`);
+          const { error: updateErr } = await sb.from('user_subscriptions').update({
             plan_id: subscription.status === 'active' ? planId : 'starter',
-            status: subscription.status,
+            status: status,
             current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
             current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
           }).eq('user_id', userSub.user_id);
-        }
-      } catch (dbErr) {
-        console.warn('Webhook: Subscription update database check failed (non-blocking):', dbErr);
-      }
-      break;
-    }
-  }
 
-  res.json({ received: true });
+          if (updateErr) {
+            throw new Error(`Database update failed: ${updateErr.message}`);
+          }
+          console.log('[Webhook] Database update completed successfully.');
+        } else {
+          console.log(`[Webhook] No user found matching customer ID: ${customerId}`);
+        }
+        break;
+      }
+    }
+
+    res.json({ received: true });
+  } catch (err: any) {
+    console.error('[Webhook Error] Error processing webhook event:', err.message || err);
+    res.status(500).json({ error: err.message || 'Failed to process webhook event' });
+  }
 });
 
 export default router;
