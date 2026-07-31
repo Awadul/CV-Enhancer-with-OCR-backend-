@@ -3,6 +3,7 @@ import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import fileRoutes from './routes/fileRoutes';
+import stripeRoutes from './routes/stripeRoutes';
 import { deleteAllFilesInUploads, scheduleDailyUploadsCleanup } from './utils/fileCleanup';
 
 dotenv.config();
@@ -16,12 +17,17 @@ app.use((req, res, next) => {
 });
 
 app.use(cors({ origin: ['https://mynext9to5.com', 'https://www.mynext9to5.com', 'http://localhost:5173', 'http://localhost:3001'] }));
+
+// Raw body parser for Stripe webhooks (MUST come before express.json)
+app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
+
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ limit: '5mb', extended: true }));
 
 app.use(express.static(path.join(__dirname, '../public')));
 
 app.use('/api', fileRoutes);
+app.use('/api', stripeRoutes);
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
