@@ -222,16 +222,27 @@ router.post('/stripe/webhook', async (req: Request, res: Response) => {
           const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
           console.log(`[Webhook] Stripe Subscription retrieved. Status is: "${subscription.status}"`);
 
-          let planId = subscription.items.data[0]?.price?.metadata?.plan_id || 'pro';
-          const allowedPlans = ['starter', 'pro', 'premium', 'enterprise'];
-          if (!allowedPlans.includes(planId)) {
-            const originalPlanId = planId;
-            if (planId.toLowerCase().includes('pro')) planId = 'pro';
-            else if (planId.toLowerCase().includes('premium')) planId = 'premium';
-            else if (planId.toLowerCase().includes('enterprise')) planId = 'enterprise';
-            else planId = 'pro';
-            console.log(`[Webhook] plan_id "${originalPlanId}" normalized to "${planId}" to satisfy DB constraints.`);
+          // Retrieve full price details to access nickname and product name
+          const priceDetails = await getStripe().prices.retrieve(
+            subscription.items.data[0]?.price?.id,
+            { expand: ['product'] }
+          );
+          const priceNickname = priceDetails.nickname || '';
+          const productName = (priceDetails.product as any)?.name || '';
+          const rawPlanId = priceDetails.metadata?.plan_id || '';
+
+          // Determine plan_id: metadata first, then nickname/product name, then fallback
+          let planId: string;
+          if (rawPlanId && ['starter', 'pro', 'premium', 'enterprise'].includes(rawPlanId)) {
+            planId = rawPlanId;
+          } else {
+            const searchStr = (rawPlanId + ' ' + priceNickname + ' ' + productName).toLowerCase();
+            if (searchStr.includes('premium')) planId = 'premium';
+            else if (searchStr.includes('enterprise')) planId = 'enterprise';
+            else if (searchStr.includes('pro')) planId = 'pro';
+            else planId = 'pro'; // safe paid-tier default
           }
+          console.log(`[Webhook] Resolved plan_id: "${planId}" (metadata: "${rawPlanId}", nickname: "${priceNickname}", product: "${productName}")`);
 
           let status = subscription.status;
           const allowedStatuses = ['active', 'canceled', 'past_due', 'trialing'];
@@ -302,14 +313,26 @@ router.post('/stripe/webhook', async (req: Request, res: Response) => {
         }
 
         if (userSub?.user_id) {
-          let planId = subscription.items.data[0]?.price?.metadata?.plan_id || 'starter';
-          const allowedPlans = ['starter', 'pro', 'premium', 'enterprise'];
-          if (!allowedPlans.includes(planId)) {
-            if (planId.toLowerCase().includes('pro')) planId = 'pro';
-            else if (planId.toLowerCase().includes('premium')) planId = 'premium';
-            else if (planId.toLowerCase().includes('enterprise')) planId = 'enterprise';
+          // Retrieve full price details to access nickname and product name
+          const priceDetails = await getStripe().prices.retrieve(
+            subscription.items.data[0]?.price?.id,
+            { expand: ['product'] }
+          );
+          const priceNickname = priceDetails.nickname || '';
+          const productName = (priceDetails.product as any)?.name || '';
+          const rawPlanId = priceDetails.metadata?.plan_id || '';
+
+          let planId: string;
+          if (rawPlanId && ['starter', 'pro', 'premium', 'enterprise'].includes(rawPlanId)) {
+            planId = rawPlanId;
+          } else {
+            const searchStr = (rawPlanId + ' ' + priceNickname + ' ' + productName).toLowerCase();
+            if (searchStr.includes('premium')) planId = 'premium';
+            else if (searchStr.includes('enterprise')) planId = 'enterprise';
+            else if (searchStr.includes('pro')) planId = 'pro';
             else planId = 'starter';
           }
+          console.log(`[Webhook] Resolved plan_id: "${planId}" (metadata: "${rawPlanId}", nickname: "${priceNickname}", product: "${productName}")`);
 
           let status = subscription.status;
           const allowedStatuses = ['active', 'canceled', 'past_due', 'trialing'];
