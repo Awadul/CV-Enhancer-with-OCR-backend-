@@ -14,14 +14,17 @@ import { tailorCV } from '../controllers/cvTailorController';
 import { analyzeLinkedInProfile } from '../controllers/linkedinController';
 import { optimizeKeywords } from '../controllers/keywordOptimizerController';
 import { analyzeKeywordDensity } from '../controllers/keywordDensityController';
+import { analyzeAttention } from '../controllers/attentionController';
 import upload from '../middleware/multerConfig';
+import { rateLimiter } from '../middleware/rateLimiter';
+import { optionalAuth } from '../middleware/authMiddleware';
 
 const router = Router();
 
 router.post('/file/upload', upload.single('file'), uploadFile);
 router.post('/file/parse-text', parseText);
 router.post('/pdf/generate', generatePDFController);
-router.post('/ats/check', upload.single('file'), checkATS);
+router.post('/ats/check', optionalAuth, rateLimiter({ limit: 1 }), upload.single('file'), checkATS);
 router.post('/jobs/search', searchJobsHandler);
 router.post('/jobs/extract', extractFromUrlHandler);
 router.post('/cover-letter/generate', generateCoverLetter);
@@ -37,5 +40,6 @@ router.post('/cv/tailor', tailorCV);
 router.post('/linkedin/analyze', upload.single('file'), analyzeLinkedInProfile);
 router.post('/ats/keyword-optimize', optimizeKeywords);
 router.post('/keyword/density', analyzeKeywordDensity);
+router.post('/attention/analyze', optionalAuth, rateLimiter({ limit: 5 }), analyzeAttention);
 
 export default router; 
