@@ -1302,3 +1302,73 @@ Rules:
     };
   }
 };
+
+export const sendToOpenAIForAttention = async (
+  layoutSummary: Record<string, unknown>,
+  cvData: Record<string, unknown>
+) => {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const summaryJson = JSON.stringify(layoutSummary, null, 2);
+  const cvJson = JSON.stringify(cvData, null, 2);
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an expert recruiter and resume layout analyst. You explain how a recruiter is likely to visually scan a candidate's resume in the first 6-8 seconds. The resume layout has been machine-analyzed into a structured summary with per-section attention scores (0-100), geometry, typography and density metrics.
+
+Return JSON only with this structure:
+{
+  "observations": [
+    "Recruiters will spend most of their attention on your experience because it occupies the center of the page with strong visual hierarchy.",
+    "Your summary reads as dense and may be skipped during an initial scan."
+  ],
+  "issues": [
+    { "severity": "critical", "message": "Your certifications section is buried below the fold and will likely be overlooked.", "fix": "Move certifications to the top half of page two or cut it to a single line." },
+    { "severity": "medium", "message": "Projects receive limited attention due to weak spacing between bullets.", "fix": "Increase paragraph spacing and keep projects to 3-4 bullets." },
+    { "severity": "minor", "message": "Skills use heavy bold throughout, reducing visual hierarchy.", "fix": "Bold only the first skill in each category." }
+  ],
+  "recommendations": [
+    { "severity": "critical", "title": "Reveal your experience", "detail": "Your experience section is visually hidden below an oversized summary. Trim the summary to 2 lines so experience rises above the fold." },
+    { "severity": "medium", "title": "Add breathing room to projects", "detail": "Increase spacing between projects and convert long paragraphs into 3-4 bullet points." },
+    { "severity": "minor", "title": "Tame the bold", "detail": "Reduce bold usage in skills so section headings keep their dominance." }
+  ],
+  "recruiterImpression": "In 6-8 seconds a recruiter will register a competent, dense candidate with strong experience but a cluttered top fold. Tightening spacing and hierarchy would substantially raise scannability.",
+  "scanTimeSeconds": 7
+}
+
+Rules:
+- Write observations as if narrating the predicted scan. Maximum 8 observations.
+- Only mention facts supported by the layout summary (scores, geometry, typography, density, section order). Do not invent text that is not present.
+- Severity: critical = hurts the resume materially, medium = noticeable friction, minor = polish.
+- Be specific, concise and actionable. Use plain recruiter language, not jargon.
+- scanTimeSeconds should be between 6 and 8.`,
+      },
+      {
+        role: 'user',
+        content: `Layout Summary (JSON):\n${summaryJson}\n\nCandidate CV (JSON):\n${cvJson}`,
+      },
+    ],
+    temperature: 0.4,
+    max_tokens: 2048,
+  });
+
+  let raw = response.choices[0].message?.content?.trim() || '{}';
+  if (raw.startsWith('```json\n')) raw = raw.slice(7);
+  if (raw.endsWith('```')) raw = raw.slice(0, -3);
+  raw = raw.trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      observations: [],
+      issues: [],
+      recommendations: [],
+      recruiterImpression: '',
+      scanTimeSeconds: 7,
+      _raw: raw,
+    };
+  }
+};

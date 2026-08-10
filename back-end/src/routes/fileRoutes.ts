@@ -14,6 +14,7 @@ import { tailorCV } from '../controllers/cvTailorController';
 import { analyzeLinkedInProfile } from '../controllers/linkedinController';
 import { optimizeKeywords } from '../controllers/keywordOptimizerController';
 import { analyzeKeywordDensity } from '../controllers/keywordDensityController';
+import { analyzeAttention } from '../controllers/attentionController';
 import upload from '../middleware/multerConfig';
 import { rateLimiter } from '../middleware/rateLimiter';
 import { optionalAuth } from '../middleware/authMiddleware';
@@ -39,5 +40,6 @@ router.post('/cv/tailor', tailorCV);
 router.post('/linkedin/analyze', upload.single('file'), analyzeLinkedInProfile);
 router.post('/ats/keyword-optimize', optimizeKeywords);
 router.post('/keyword/density', analyzeKeywordDensity);
+router.post('/attention/analyze', optionalAuth, rateLimiter({ limit: 5 }), analyzeAttention);
 
 export default router; 
