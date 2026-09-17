@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ATS CV Checker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #1a1a2e; padding: 40px 20px; }
+    .container { max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    .subtitle { color: #666; margin-bottom: 32px; }
+    .card { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .card h2 { font-size: 18px; margin-bottom: 16px; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; }
+    textarea, input[type="file"] { width: 100%; }
+    textarea { padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; resize: vertical; min-height: 120px; font-family: inherit; }
+    textarea:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+    .file-input-wrap { display: flex; align-items: center; gap: 12px; }
+    .file-input-wrap input[type="file"] { flex: 1; padding: 10px 0; }
+    .or-divider { text-align: center; color: #999; font-size: 13px; margin: 12px 0; position: relative; }
+    .or-divider::before, .or-divider::after { content: ''; flex: 1; height: 1px; background: #e5e7eb; display: inline-block; vertical-align: middle; width: 42%; }
+    .or-divider::before { margin-right: 12px; }
+    .or-divider::after { margin-left: 12px; }
+    button { background: #6366f1; color: #fff; border: none; padding: 12px 32px; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    button:hover { background: #4f46e5; }
+    button:disabled { background: #a5b4fc; cursor: not-allowed; }
+    .score-circle { width: 120px; height: 120px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 700; color: #fff; margin: 0 auto 16px; }
+    .score-excellent { background: #22c55e; }
+    .score-good { background: #eab308; }
+    .score-poor { background: #ef4444; }
+    .score-number { text-align: center; font-size: 14px; color: #666; }
+    .section-group { margin-bottom: 16px; }
+    .section-group h3 { font-size: 15px; margin-bottom: 8px; color: #374151; }
+    .rule-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
+    .rule-row:last-child { border-bottom: none; }
+    .rule-label { display: flex; align-items: center; gap: 8px; }
+    .rule-icon { font-size: 16px; }
+    .rule-score { font-weight: 600; }
+    .recommendations { list-style: none; }
+    .recommendations li { padding: 8px 0 8px 24px; position: relative; font-size: 14px; line-height: 1.5; }
+    .recommendations li::before { content: '!'; position: absolute; left: 0; top: 8px; width: 18px; height: 18px; background: #fef3c7; color: #92400e; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+    .ai-section { background: #f8fafc; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+    .ai-section h4 { font-size: 14px; color: #475569; margin-bottom: 8px; }
+    .ai-section ul { list-style: none; }
+    .ai-section ul li { padding: 4px 0 4px 16px; font-size: 13px; position: relative; }
+    .ai-section ul li::before { content: '-'; position: absolute; left: 0; color: #94a3b8; }
+    .ai-section .tag { display: inline-block; background: #e0e7ff; color: #3730a3; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin: 2px 3px; }
+    .loading { text-align: center; padding: 40px 0; color: #666; }
+    .spinner { width: 32px; height: 32px; border: 3px solid #e5e7eb; border-top-color: #6366f1; border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 12px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hidden { display: none; }
+    .actions { margin-top: 16px; display: flex; gap: 12px; align-items: center; }
+    .file-name { font-size: 13px; color: #666; }
+    .status-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+    .status-pass { background: #dcfce7; color: #166534; }
+    .status-fail { background: #fef2f2; color: #991b1b; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>ATS CV Checker</h1>
+    <p class="subtitle">Upload your CV and optionally paste a job description to check ATS compatibility.</p>
+
+    <div class="card">
+      <h2>Upload CV</h2>
+      <div class="file-input-wrap">
+        <input type="file" id="cvFile" accept=".pdf,.docx,.doc,.txt">
+      </div>
+      <span class="file-name" id="fileName"></span>
+
+      <div class="or-divider"><span>or paste CV text directly</span></div>
+
+      <textarea id="cvText" placeholder="Paste your CV content here..."></textarea>
+    </div>
+
+    <div class="card">
+      <h2>Job Description <span style="font-weight:400;color:#999;font-size:13px;">(optional — for keyword analysis)</span></h2>
+      <textarea id="jdText" placeholder="Paste the job description here for targeted keyword matching..."></textarea>
+      <div class="actions">
+        <button id="checkBtn" onclick="runATSCheck()">Check ATS Compatibility</button>
+      </div>
+    </div>
+
+    <div id="results" class="hidden">
+      <div class="card" style="text-align:center;">
+        <div id="scoreCircle" class="score-circle"></div>
+        <div id="scoreNumber" class="score-number"></div>
+      </div>
+
+      <div class="card">
+        <h2>Section Breakdown</h2>
+        <div id="sectionBreakdown"></div>
+      </div>
+
+      <div class="card">
+        <h2>Recommendations</h2>
+        <ul id="recommendations" class="recommendations"></ul>
+      </div>
+
+      <div id="aiAnalysis" class="hidden">
+        <div class="card">
+          <h2>AI Analysis</h2>
+          <div id="aiContent"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="loading" class="hidden">
+      <div class="card">
+        <div class="loading">
+          <div class="spinner"></div>
+          <p>Analyzing CV for ATS compatibility...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const cvFile = document.getElementById('cvFile');
+    const cvText = document.getElementById('cvText');
+    const fileName = document.getElementById('fileName');
+
+    cvFile.addEventListener('change', () => {
+      if (cvFile.files.length > 0) {
+        fileName.textContent = 'Selected: ' + cvFile.files[0].name;
+      } else {
+        fileName.textContent = '';
+      }
+    });
+
+    async function runATSCheck() {
+      const resultsDiv = document.getElementById('results');
+      const loadingDiv = document.getElementById('loading');
+      const checkBtn = document.getElementById('checkBtn');
+
+      resultsDiv.classList.add('hidden');
+      loadingDiv.classList.remove('hidden');
+      checkBtn.disabled = true;
+
+      try {
+        const formData = new FormData();
+        const file = cvFile.files[0];
+        const text = cvText.value.trim();
+        const jd = document.getElementById('jdText').value.trim();
+
+        if (file) {
+          formData.append('file', file);
+        } else if (text) {
+          formData.append('cvText', text);
+        } else {
+          alert('Please upload a CV file or paste CV text.');
+          loadingDiv.classList.add('hidden');
+          checkBtn.disabled = false;
+          return;
+        }
+
+        if (jd) {
+          formData.append('jobDescription', jd);
+        }
+
+        const res = await fetch('/api/ats/check', { method: 'POST', body: formData });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.message || 'Server error');
+        }
+        const data = await res.json();
+        displayResults(data);
+      } catch (err) {
+        alert('Error: ' + err.message);
+      } finally {
+        loadingDiv.classList.add('hidden');
+        checkBtn.disabled = false;
+      }
+    }
+
+    function displayResults(data) {
+      const r = data.ruleBased;
+      const ai = data.aiAnalysis;
+
+      // Score circle
+      const scoreCircle = document.getElementById('scoreCircle');
+      const pct = r.percentage;
+      scoreCircle.textContent = pct + '%';
+      scoreCircle.className = 'score-circle ' + (pct >= 70 ? 'score-excellent' : pct >= 50 ? 'score-good' : 'score-poor');
+      document.getElementById('scoreNumber').textContent = r.overallScore + ' / ' + r.maxScore + ' points';
+
+      // Section breakdown
+      const sb = document.getElementById('sectionBreakdown');
+      sb.innerHTML = '';
+      for (const section of r.sections) {
+        const group = document.createElement('div');
+        group.className = 'section-group';
+        const h3 = document.createElement('h3');
+        h3.textContent = section.category;
+        group.appendChild(h3);
+        for (const rule of section.rules) {
+          const row = document.createElement('div');
+          row.className = 'rule-row';
+          const passed = rule.passed || rule.score === rule.maxScore;
+          row.innerHTML = `
+            <div class="rule-label">
+              <span class="rule-icon">${passed ? '\u2705' : '\u274C'}</span>
+              <span>${rule.rule}</span>
+            </div>
+            <span class="rule-score">${rule.score}/${rule.maxScore}</span>
+          `;
+          group.appendChild(row);
+        }
+        sb.appendChild(group);
+      }
+
+      // Recommendations
+      const recs = document.getElementById('recommendations');
+      recs.innerHTML = '';
+      if (r.recommendations.length === 0) {
+        recs.innerHTML = '<li style="color:#22c55e;">Your CV looks well-optimized for ATS!</li>';
+      } else {
+        for (const rec of r.recommendations) {
+          const li = document.createElement('li');
+          li.textContent = rec;
+          recs.appendChild(li);
+        }
+      }
+
+      // AI analysis
+      const aiDiv = document.getElementById('aiAnalysis');
+      const aiContent = document.getElementById('aiContent');
+      aiContent.innerHTML = '';
+
+      if (ai && !ai._raw) {
+        const sections = [
+          { label: 'Strengths', key: 'strengths', icon: '\u2B50' },
+          { label: 'Content Suggestions', key: 'contentSuggestions', icon: '\uD83D\uDCDD' },
+          { label: 'Keyword Gaps', key: 'keywordGaps', icon: '\uD83D\uDD0D' },
+          { label: 'Format Issues', key: 'formatIssues', icon: '\u26A0\uFE0F' },
+          { label: 'Matched Keywords', key: 'matchedKeywords', icon: '\u2705' },
+        ];
+
+        for (const s of sections) {
+          const items = ai[s.key];
+          if (!items || items.length === 0) continue;
+
+          const section = document.createElement('div');
+          section.className = 'ai-section';
+          let html = '<h4>' + s.icon + ' ' + s.label + '</h4>';
+          if (s.key === 'matchedKeywords' || s.key === 'keywordGaps') {
+            html += '<div>';
+            for (const item of items) {
+              html += '<span class="tag">' + escapeHtml(item) + '</span>';
+            }
+            html += '</div>';
+          } else {
+            html += '<ul>';
+            for (const item of items) {
+              html += '<li>' + escapeHtml(item) + '</li>';
+            }
+            html += '</ul>';
+          }
+          section.innerHTML = html;
+          aiContent.appendChild(section);
+        }
+
+        aiDiv.classList.remove('hidden');
+      } else if (ai && ai._raw) {
+        // AI returned non-JSON, show raw
+        aiDiv.classList.remove('hidden');
+        aiContent.innerHTML = '<div class="ai-section"><p style="font-size:13px;color:#666;">' + escapeHtml(ai._raw) + '</p></div>';
+      }
+
+      document.getElementById('results').classList.remove('hidden');
+      document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

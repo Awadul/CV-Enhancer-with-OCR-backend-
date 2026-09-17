@@ -1,7 +1,23 @@
 import { Router } from 'express';
 import { uploadFile, parseText, getATSAnalysisController, optimizeATSController } from '../controllers/fileController';
 import { generatePDFController } from '../controllers/pdfController';
+import { checkATS } from '../controllers/atsController';
+import { searchJobsHandler, extractFromUrlHandler } from '../controllers/jobsController';
+import { generateCoverLetter } from '../controllers/coverLetterController';
+import { polishResume } from '../controllers/resumePolishController';
+import { analyzeSkillGap } from '../controllers/skillGapController';
+import { generateInterviewPrep } from '../controllers/interviewPrepController';
+import { startSimulation, getFeedback } from '../controllers/interviewSimulationController';
+import { getSalaryInsights, compareSalaries } from '../controllers/salaryInsightsController';
+import { generateCareerRoadmap } from '../controllers/careerRoadmapController';
+import { tailorCV } from '../controllers/cvTailorController';
+import { analyzeLinkedInProfile } from '../controllers/linkedinController';
+import { optimizeKeywords } from '../controllers/keywordOptimizerController';
+import { analyzeKeywordDensity } from '../controllers/keywordDensityController';
+import { analyzeAttention } from '../controllers/attentionController';
 import upload from '../middleware/multerConfig';
+import { rateLimiter } from '../middleware/rateLimiter';
+import { optionalAuth } from '../middleware/authMiddleware';
 
 const router = Router();
 
@@ -10,5 +26,22 @@ router.post('/file/parse-text', parseText);
 router.post('/file/ats-score', getATSAnalysisController);
 router.post('/file/ats-optimize', optimizeATSController);
 router.post('/pdf/generate', generatePDFController);
+router.post('/ats/check', optionalAuth, rateLimiter({ limit: 1 }), upload.single('file'), checkATS);
+router.post('/jobs/search', searchJobsHandler);
+router.post('/jobs/extract', extractFromUrlHandler);
+router.post('/cover-letter/generate', generateCoverLetter);
+router.post('/resume/polish', polishResume);
+router.post('/skills/gap', analyzeSkillGap);
+router.post('/interview/prep', generateInterviewPrep);
+router.post('/interview/simulate', startSimulation);
+router.post('/interview/feedback', getFeedback);
+router.post('/salary/insights', getSalaryInsights);
+router.post('/salary/compare', compareSalaries);
+router.post('/career/roadmap', generateCareerRoadmap);
+router.post('/cv/tailor', tailorCV);
+router.post('/linkedin/analyze', upload.single('file'), analyzeLinkedInProfile);
+router.post('/ats/keyword-optimize', optimizeKeywords);
+router.post('/keyword/density', analyzeKeywordDensity);
+router.post('/attention/analyze', optionalAuth, rateLimiter({ limit: 5 }), analyzeAttention);
 
 export default router; 

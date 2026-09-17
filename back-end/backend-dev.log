@@ -1,0 +1,23 @@
+
+> cv-reformat-backend@1.0.0 dev
+> nodemon src/app.ts
+
+[33m[nodemon] 3.1.11[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): *.*[39m
+[33m[nodemon] watching extensions: ts,json[39m
+[32m[nodemon] starting `ts-node src/app.ts`[39m
+(node:11968) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:11968) ExperimentalWarning: CommonJS module C:\Users\Asus\Downloads\CV Enhancer\CV-Enhancer-with-OCR-backend-\back-end\src\controllers\pdfController.ts is loading ES Module C:\Users\Asus\Downloads\CV Enhancer\CV-Enhancer-with-OCR-backend-\back-end\node_modules\puppeteer\lib\puppeteer\puppeteer.js using require().
+Support for loading ES Module in require() is an experimental feature and might change at any time
+🚀 Server running on port 5000
+[uploads-cleanup] Startup cleanup completed
+[2026-08-07T11:19:22.966Z] POST /api/attention/analyze
+[2026-08-07T11:22:48.418Z] OPTIONS /api/attention/analyze
+[2026-08-07T11:23:19.259Z] OPTIONS /api/attention/analyze
+[2026-08-07T11:24:54.030Z] OPTIONS /api/attention/analyze
+[2026-08-07T11:25:27.256Z] OPTIONS /api/attention/analyze
+[2026-08-07T11:25:45.629Z] OPTIONS /api/attention/analyze
+[2026-08-07T11:26:06.511Z] OPTIONS /api/attention/analyze
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m

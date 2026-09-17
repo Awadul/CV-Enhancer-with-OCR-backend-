@@ -150,7 +150,7 @@ async function extractPdfContent(filePath: string): Promise<{ content: string[];
 }
 
 // Update extractContentAndLinks to work with file paths instead of buffers
-async function extractContentAndLinks(filePath: string, extension: string): Promise<{ content: string[], links: string[] }> {
+export async function extractContentAndLinks(filePath: string, extension: string): Promise<{ content: string[], links: string[] }> {
   try {
     let extractedLinks: string[] = [];
     let extractedText: string[] = [];
