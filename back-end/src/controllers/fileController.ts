@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
-import { sendToOpenAI } from '../utils/openaiClient';
+import { sendToOpenAI, evaluateATS, optimizeATS } from '../utils/openaiClient';
 import multer from 'multer';
 // import ConvertAPI from 'convertapi';
 // @ts-ignore
@@ -288,5 +288,39 @@ export const parseText = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error parsing text:', error);
     res.status(500).json({ message: 'Internal server error', error: (error as Error).message });
+  }
+};
+
+export const getATSAnalysisController = async (req: Request, res: Response) => {
+  try {
+    const { cvData } = req.body;
+    if (!cvData) {
+      return res.status(400).json({ message: 'No CV data provided' });
+    }
+    
+    console.log("Analyzing CV against ATS standards...");
+    const result = await evaluateATS(cvData);
+    console.log("ATS analysis completed.");
+    res.json(result);
+  } catch (error) {
+    console.error('Error in ATS evaluation:', error);
+    res.status(500).json({ message: 'Failed to analyze ATS score', error: (error as Error).message });
+  }
+};
+
+export const optimizeATSController = async (req: Request, res: Response) => {
+  try {
+    const { cvData } = req.body;
+    if (!cvData) {
+      return res.status(400).json({ message: 'No CV data provided' });
+    }
+    
+    console.log("Optimizing CV for ATS standard...");
+    const result = await optimizeATS(cvData);
+    console.log("ATS optimization completed.");
+    res.json(result);
+  } catch (error) {
+    console.error('Error in ATS optimization:', error);
+    res.status(500).json({ message: 'Failed to optimize CV', error: (error as Error).message });
   }
 };
