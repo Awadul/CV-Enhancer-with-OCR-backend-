@@ -4,17 +4,14 @@ exports.getFeedback = exports.startSimulation = void 0;
 const openaiClient_1 = require("../utils/openaiClient");
 const startSimulation = async (req, res) => {
     try {
-        const { cvData, jobDescription, jobTitle, companyName, roundType } = req.body;
+        const { cvData, jobDescription, jobTitle, companyName, roundType, topic } = req.body;
         if (!cvData) {
             return res.status(400).json({ message: 'cvData is required.' });
-        }
-        if (!jobDescription?.trim()) {
-            return res.status(400).json({ message: 'jobDescription is required.' });
         }
         if (!roundType?.trim()) {
             return res.status(400).json({ message: 'roundType is required.' });
         }
-        const result = await (0, openaiClient_1.sendToOpenAIForInterviewSimulation)(typeof cvData === 'string' ? JSON.parse(cvData) : cvData, jobDescription, jobTitle || '', companyName || '', roundType);
+        const result = await (0, openaiClient_1.sendToOpenAIForInterviewSimulation)(typeof cvData === 'string' ? JSON.parse(cvData) : cvData, jobDescription || '', jobTitle || '', companyName || '', roundType, topic || '');
         res.json(result);
     }
     catch (error) {

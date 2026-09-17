@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.parseText = exports.uploadFile = void 0;
+exports.optimizeATSController = exports.getATSAnalysisController = exports.parseText = exports.uploadFile = void 0;
 exports.extractContentAndLinks = extractContentAndLinks;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
@@ -276,3 +276,37 @@ const parseText = async (req, res) => {
     }
 };
 exports.parseText = parseText;
+const getATSAnalysisController = async (req, res) => {
+    try {
+        const { cvData } = req.body;
+        if (!cvData) {
+            return res.status(400).json({ message: 'No CV data provided' });
+        }
+        console.log("Analyzing CV against ATS standards...");
+        const result = await (0, openaiClient_1.evaluateATS)(cvData);
+        console.log("ATS analysis completed.");
+        res.json(result);
+    }
+    catch (error) {
+        console.error('Error in ATS evaluation:', error);
+        res.status(500).json({ message: 'Failed to analyze ATS score', error: error.message });
+    }
+};
+exports.getATSAnalysisController = getATSAnalysisController;
+const optimizeATSController = async (req, res) => {
+    try {
+        const { cvData } = req.body;
+        if (!cvData) {
+            return res.status(400).json({ message: 'No CV data provided' });
+        }
+        console.log("Optimizing CV for ATS standard...");
+        const result = await (0, openaiClient_1.optimizeATS)(cvData);
+        console.log("ATS optimization completed.");
+        res.json(result);
+    }
+    catch (error) {
+        console.error('Error in ATS optimization:', error);
+        res.status(500).json({ message: 'Failed to optimize CV', error: error.message });
+    }
+};
+exports.optimizeATSController = optimizeATSController;
