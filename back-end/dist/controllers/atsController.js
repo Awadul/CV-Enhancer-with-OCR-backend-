@@ -42,8 +42,51 @@ const path_1 = __importDefault(require("path"));
 const fileController_1 = require("./fileController");
 const atsChecker_1 = require("../utils/atsChecker");
 const openaiClient_1 = require("../utils/openaiClient");
+const supabase_js_1 = require("@supabase/supabase-js");
+// Plan-based monthly ATS scan limits. Must stay in sync with the frontend
+// USAGE_LIMITS in src/data/pricing.ts.
+const PLAN_ATS_LIMITS = {
+    starter: 3,
+    pro: 999,
+    premium: 999,
+    enterprise: 999,
+};
+let supabase = null;
+function getSupabase() {
+    if (!supabase) {
+        const url = process.env.SUPABASE_URL;
+        const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        if (!url || !serviceKey)
+            throw new Error('Supabase credentials not configured');
+        supabase = (0, supabase_js_1.createClient)(url, serviceKey);
+    }
+    return supabase;
+}
 const checkATS = async (req, res) => {
     try {
+        const userId = req.userId;
+        const userPlan = req.userPlan;
+        // Enforce per-plan monthly limit for authenticated users.
+        if (userId) {
+            const limit = PLAN_ATS_LIMITS[userPlan || 'starter'] ?? 3;
+            const client = getSupabase();
+            const { data: usage, error: usageErr } = await client
+                .from('user_usage')
+                .select('atsScansPerMonth')
+                .eq('user_id', userId)
+                .maybeSingle();
+            if (usageErr) {
+                console.warn('[checkATS] usage lookup failed:', usageErr.message);
+            }
+            const used = usage?.atsScansPerMonth ?? 0;
+            if (used >= limit) {
+                return res.status(429).json({
+                    message: limit <= 3
+                        ? 'You have used your 3 free ATS scans for this month. Upgrade your plan for unlimited scans.'
+                        : 'You have reached your monthly ATS scan limit. Upgrade your plan for more scans.',
+                });
+            }
+        }
         const jobDescription = req.body.jobDescription;
         let cvText = '';
         let cvData = null;
@@ -89,6 +132,18 @@ const checkATS = async (req, res) => {
         catch (aiErr) {
             console.error('AI ATS analysis failed, returning rule results only:', aiErr);
             aiResult = null;
+        }
+        // Increment usage for authenticated users only.
+        if (userId) {
+            try {
+                await getSupabase().rpc('increment_usage', {
+                    p_user_id: userId,
+                    p_feature: 'atsScansPerMonth',
+                });
+            }
+            catch (incErr) {
+                console.warn('[checkATS] increment_usage failed:', incErr.message);
+            }
         }
         res.json({
             ruleBased: ruleResult,

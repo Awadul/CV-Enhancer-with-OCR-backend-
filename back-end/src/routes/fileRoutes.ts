@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { uploadFile, parseText } from '../controllers/fileController';
+import { uploadFile, parseText, getATSAnalysisController, optimizeATSController } from '../controllers/fileController';
 import { generatePDFController } from '../controllers/pdfController';
 import { checkATS } from '../controllers/atsController';
 import { searchJobsHandler, extractFromUrlHandler } from '../controllers/jobsController';
@@ -26,6 +26,8 @@ const router = Router();
 
 router.post('/file/upload', upload.single('file'), uploadFile);
 router.post('/file/parse-text', parseText);
+router.post('/file/ats-score', getATSAnalysisController);
+router.post('/file/ats-optimize', optimizeATSController);
 router.post('/pdf/generate', generatePDFController);
 router.post('/ats/check', optionalAuth, rateLimiter({ limit: 1 }), upload.single('file'), checkATS);
 router.post('/jobs/search', searchJobsHandler);

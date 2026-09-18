@@ -14,8 +14,8 @@ const generateCoverLetter = async (req, res) => {
         if (!jobTitle?.trim()) {
             return res.status(400).json({ message: 'jobTitle is required.' });
         }
-        const coverLetter = await (0, openaiClient_1.sendToOpenAIForCoverLetter)(typeof cvData === 'string' ? JSON.parse(cvData) : cvData, jobDescription, companyName || '', jobTitle);
-        res.json({ coverLetter });
+        const variants = await (0, openaiClient_1.sendToOpenAIForCoverLetter)(typeof cvData === 'string' ? JSON.parse(cvData) : cvData, jobDescription, companyName || '', jobTitle);
+        res.json({ variants });
     }
     catch (error) {
         console.error('Error generating cover letter:', error);

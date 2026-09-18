@@ -64,3 +64,12 @@ This file serves as a persistent memory record of key architectural decisions, r
 - **AI Schema Hallucinations**: Even with strict formatting, OpenAI occasionally hallucinates arrays (e.g., `skills`, `experience`, `education`) as flat strings or dictionaries. The backend currently passes the raw JSON directly to the frontend.
   - *Frontend Fix*: The frontend (`useCVData.ts`) strictly sanitizes all incoming arrays before they enter the application state. If future backend development involves database writing or server-side schema validation, we must enforce `Array.isArray()` checks at the backend layer as well to prevent corrupted data from reaching Supabase.
 - **File**: Implemented in [fileController.ts](file:///d:/CV%20Customizer%20App/CV-Enhancer-with-OCR-backend-/back-end/src/controllers/fileController.ts) alongside the existing PDF OCR extraction logic.
+
+---
+
+## 6. ATS Evaluation & Optimization Pipeline
+
+### Endpoints
+- **`POST /file/ats-score`**: Receives parsed `CVData`, prompts OpenAI to evaluate it against 5 criteria (Contact Information, Quantifiable Achievements, Formatting & Dates, Skills & Categorization, Action Verbs), and returns a JSON assessment (score, status indicators, missingThings, improvements).
+- **`POST /file/ats-optimize`**: Receives parsed `CVData`, prompts OpenAI to rewrite experience bullet points with strong action verbs, synthetically embeds realistic metrics/impact, cleans date formats, and formats skills for maximum ATS match rates.
+- **Skills Array Fix**: Refactored the backend extraction prompts (under `skillsPromise` in `openaiClient.ts`) to return an array of category objects instead of a single object, resolving an extraction-to-rendering gap.

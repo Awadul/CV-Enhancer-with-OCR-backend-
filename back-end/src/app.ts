@@ -28,6 +28,8 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 app.use('/api', fileRoutes);
 app.use('/api', stripeRoutes);
+app.use(fileRoutes);
+app.use(stripeRoutes);
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));

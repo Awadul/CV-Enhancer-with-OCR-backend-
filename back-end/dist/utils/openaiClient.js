@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendToOpenAIForCVTailor = exports.sendToOpenAIForLinkedInProfile = exports.sendToOpenAIForATSWithData = exports.sendToOpenAIForCoverLetter = exports.sendToOpenAIForInterviewFeedback = exports.sendToOpenAIForInterviewSimulation = exports.sendToOpenAIForSalaryComparison = exports.sendToOpenAIForCareerRoadmap = exports.sendToOpenAIForSalaryInsights = exports.sendToOpenAIForInterviewPrep = exports.sendToOpenAIForSkillGap = exports.sendToOpenAIForResumePolish = exports.sendToOpenAIForATS = exports.sendToOpenAI = void 0;
+exports.sendToOpenAIForAttention = exports.sendToOpenAIForKeywordOptimization = exports.sendToOpenAIForCVTailor = exports.sendToOpenAIForLinkedInProfile = exports.sendToOpenAIForATSWithData = exports.sendToOpenAIForCoverLetter = exports.sendToOpenAIForInterviewFeedback = exports.sendToOpenAIForInterviewSimulation = exports.sendToOpenAIForSalaryComparison = exports.sendToOpenAIForCareerRoadmap = exports.sendToOpenAIForSalaryInsights = exports.sendToOpenAIForInterviewPrep = exports.sendToOpenAIForSkillGap = exports.sendToOpenAIForResumePolish = exports.optimizeATS = exports.sendToOpenAIForATS = exports.evaluateATS = exports.sendToOpenAI = void 0;
 const openai_1 = __importDefault(require("openai"));
 const sendToOpenAI = async (content) => {
     const startTime = Date.now();
@@ -128,14 +128,16 @@ For all other fields, if they are not mentioned, don't fill them in. Find only p
     const skillsPromise = openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [
-            { role: 'system', content: `Extract all only tech-skill information from the pdf. If there is no requried information, fill {} in that field. Output only JSON, no explanation.
+            { role: 'system', content: `Extract all only tech-skill information from the pdf. If there is no requried information, fill [] in that field. Output only JSON, no explanation.
 
         JSON Format 
-          "skills": {
-            category: category_name,
-            skills: [skill1, skill2],
-            level: 'Beginner'?'Intermediate'?'Advanced'?'Expert'
-          },` },
+        "skills": [
+          {
+            "category": "category_name (e.g. Programming Languages, Frameworks, Tools)",
+            "skills": ["skill1", "skill2"],
+            "level": "Expert"
+          }
+        ]` },
             { role: 'user', content: `Here is the content of the pdf:\n${content}` },
         ],
         temperature: 0.0,
@@ -206,10 +208,63 @@ For all other fields, if they are not mentioned, don't fill them in. Find only p
         ...result_personal_info,
         experience: result_experience.experience || [],
         projects: result_project.projects || [],
-        skills: result_skills.skills || {},
+        skills: result_skills.skills || [],
     };
 };
 exports.sendToOpenAI = sendToOpenAI;
+const evaluateATS = async (cvData) => {
+    const startTime = Date.now();
+    const openai = new openai_1.default({
+        apiKey: process.env.OPENAI_API_KEY,
+    });
+    const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+            {
+                role: 'system',
+                content: `You are an expert ATS (Applicant Tracking System) evaluator. Evaluate the provided CV data against standard ATS screening algorithms and recruitment best practices.
+        
+        Evaluate based on these 5 predefined criteria:
+        1. Contact Information (checks if email, phone, location, and relevant links are present)
+        2. Quantifiable Achievements (checks if descriptions contain metrics, percentages, numbers, or dollar values)
+        3. Formatting & Dates (checks if date fields are filled and standard, and structure is clean)
+        4. Skills & Categorization (checks if skills are categorized and complete)
+        5. Action Verbs (checks if experience bullets start with strong, impactful action verbs)
+
+        Provide an overall score out of 100, status ('pass' or 'fail') and details for each of the 5 criteria, a list of missing things, and a list of specific recommended improvements.
+        
+        Output ONLY a JSON object conforming exactly to this structure (with no extra wrapping keys or comments outside the JSON):
+        {
+          "score": number,
+          "criteria": [
+            { "name": "Contact Information", "status": "pass" | "fail", "details": "explanation of what is good or needs work" },
+            { "name": "Quantifiable Achievements", "status": "pass" | "fail", "details": "..." },
+            { "name": "Formatting & Dates", "status": "pass" | "fail", "details": "..." },
+            { "name": "Skills & Categorization", "status": "pass" | "fail", "details": "..." },
+            { "name": "Action Verbs", "status": "pass" | "fail", "details": "..." }
+          ],
+          "missingThings": ["string", "string"],
+          "improvements": ["string", "string"]
+        }`
+            },
+            {
+                role: 'user',
+                content: `Evaluate this CV Data JSON:\n${JSON.stringify(cvData, null, 2)}`
+            }
+        ],
+        temperature: 0.2,
+        response_format: { type: "json_object" }
+    });
+    const resultString = response.choices[0].message?.content;
+    let jsonString = resultString?.trim() || '{}';
+    if (jsonString.startsWith('```json\n') && jsonString.endsWith('```')) {
+        jsonString = jsonString.slice(7, -3).trim();
+    }
+    const endTime = Date.now();
+    console.log(`evaluateATS execution time: ${endTime - startTime} ms`);
+    return JSON.parse(jsonString);
+};
+exports.evaluateATS = evaluateATS;
 const sendToOpenAIForATS = async (cvContent, jobDescription) => {
     const openai = new openai_1.default({
         apiKey: process.env.OPENAI_API_KEY,
@@ -271,6 +326,122 @@ Rules:
     }
 };
 exports.sendToOpenAIForATS = sendToOpenAIForATS;
+const optimizeATS = async (cvData) => {
+    const startTime = Date.now();
+    const openai = new openai_1.default({
+        apiKey: process.env.OPENAI_API_KEY,
+    });
+    const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+            {
+                role: 'system',
+                content: `You are an expert resume writer and ATS optimization specialist.
+        Optimize the provided CV Data JSON to make it highly compatible with Applicant Tracking Systems (ATS) and professional recruiters.
+        
+        Optimization Requirements:
+        1. Professional Summary: Ensure the summary is written in the FIRST PERSON using "I" naturally. Ensure it's professional, concise (2-4 sentences), and includes key keywords.
+        2. Experience (Employment History): 
+           - Rewrite all description bullet points to start with strong, professional action verbs (e.g., "Spearheaded", "Architected", "Engineered", "Implemented", "Enhanced", "Slashed").
+           - Add realistic and contextual quantifiable achievements/metrics (e.g. percentages, load time improvements, cost reductions) where logical to describe the impact of their duties. DO NOT invent completely fake credentials, but enhance existing responsibilities with typical engineering/industry metrics.
+        3. Skills: Ensure skills are well-categorized and clearly formatted.
+        4. Languages: Ensure level names are clean.
+        5. Conform strictly to the CVData schema. Do not omit any existing valid information.
+
+        Output ONLY a JSON object conforming exactly to this structure (CVData schema, with no extra wrapping keys or comments outside the JSON):
+        {
+          "first_name": "string",
+          "last_name": "string",
+          "title": "string",
+          "contact": {
+            "phone": "string",
+            "email": "string",
+            "location": "string",
+            "links": {
+              "title": "url"
+            }
+          },
+          "summary": "string",
+          "education": [
+            {
+              "degree": "string",
+              "field": "string",
+              "institution": "string",
+              "start_date": "yyyy-mm",
+              "end_date": "yyyy-mm"
+            }
+          ],
+          "certifications": [
+            {
+              "name": "string",
+              "issuer": "string",
+              "date": "string"
+            }
+          ],
+          "internship_volunteering": [
+            {
+              "involvement": "string",
+              "organization": "string",
+              "description": "string",
+              "start_date": "yyyy-mm",
+              "end_date": "yyyy-mm"
+            }
+          ],
+          "languages_spoken": [
+            {
+              "language": "string",
+              "level": "string"
+            }
+          ],
+          "experience": [
+            {
+              "title": "string",
+              "company": "string",
+              "location": "string",
+              "type": "string",
+              "start_date": "yyyy-mm",
+              "end_date": "yyyy-mm",
+              "summary": "string",
+              "description": ["bullet 1", "bullet 2"]
+            }
+          ],
+          "projects": [
+            {
+              "project_name": "string",
+              "organization": "string",
+              "start_date": "yyyy-mm",
+              "end_date": "yyyy-mm",
+              "description": "string",
+              "technologies": ["tech1", "tech2"]
+            }
+          ],
+          "skills": [
+            {
+              "category": "string",
+              "skills": ["skill1", "skill2"],
+              "level": "Beginner" | "Intermediate" | "Advanced" | "Expert"
+            }
+          ]
+        }`
+            },
+            {
+                role: 'user',
+                content: `Optimize this CV Data JSON:\n${JSON.stringify(cvData, null, 2)}`
+            }
+        ],
+        temperature: 0.3,
+        response_format: { type: "json_object" }
+    });
+    const resultString = response.choices[0].message?.content;
+    let jsonString = resultString?.trim() || '{}';
+    if (jsonString.startsWith('```json\n') && jsonString.endsWith('```')) {
+        jsonString = jsonString.slice(7, -3).trim();
+    }
+    const endTime = Date.now();
+    console.log(`optimizeATS execution time: ${endTime - startTime} ms`);
+    return JSON.parse(jsonString);
+};
+exports.optimizeATS = optimizeATS;
 // Resume Polish
 const sendToOpenAIForResumePolish = async (cvData) => {
     const openai = new openai_1.default({ apiKey: process.env.OPENAI_API_KEY });
@@ -542,28 +713,81 @@ const sendToOpenAIForCareerRoadmap = async (cvData, targetRole, timeline, experi
         messages: [
             {
                 role: 'system',
-                content: `You are a senior career strategist. Based on the candidate's current CV and their career goal, create a personalized career roadmap.
+                content: `You are a senior career strategist. Based on the candidate's current CV and their career goal, create a personalized interactive career path visualization as a TREE with branching progression paths.
 
 Return JSON only with this structure:
 {
+  "tree": {
+    "name": "Current Role (inferred from CV, e.g. Junior Developer)",
+    "attributes": {
+      "salaryRange": "estimated range e.g. $55K-$75K",
+      "timeline": "Now",
+      "skills": ["current relevant skills from CV"],
+      "importance": "current",
+      "summary": "Brief assessment of where the candidate is now"
+    },
+    "children": [
+      {
+        "name": "Intermediate Role 1 (e.g. Developer)",
+        "attributes": {
+          "salaryRange": "$70K-$95K",
+          "timeline": "Months 1-6",
+          "skills": ["skills needed to reach this role"],
+          "importance": "intermediate",
+          "summary": "What this role involves",
+          "actions": ["specific action to reach this role"],
+          "resources": [
+            { "name": "Resource name", "type": "course|certification|book|project|community", "url": "suggested URL" }
+          ]
+        },
+        "children": [
+          {
+            "name": "Target Role (e.g. Senior Developer)",
+            "attributes": {
+              "salaryRange": "$110K-$140K",
+              "timeline": "Months 12-18",
+              "skills": ["skills for target role"],
+              "importance": "target",
+              "summary": "What the target role typically looks like",
+              "actions": ["specific action"],
+              "resources": []
+            },
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "Alternative Path Role (e.g. Specialist track)",
+        "attributes": {
+          "salaryRange": "$80K-$100K",
+          "timeline": "Months 3-9",
+          "skills": ["skills for alternative path"],
+          "importance": "alternative",
+          "summary": "An alternative route to the target",
+          "actions": ["specific action"],
+          "resources": []
+        },
+        "children": [
+          {
+            "name": "Target Role (e.g. Senior Developer)",
+            "attributes": {
+              "salaryRange": "$110K-$140K",
+              "timeline": "Months 15-20",
+              "skills": ["skills for target role"],
+              "importance": "target",
+              "summary": "What the target role typically looks like",
+              "actions": [],
+              "resources": []
+            },
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
   "currentSummary": "Brief assessment of where the candidate is now",
   "targetSummary": "What the target role typically looks like",
-  "milestones": [
-    {
-      "title": "Milestone title",
-      "timeline": "e.g. Months 1-3",
-      "skills": ["skill1", "skill2"],
-      "actions": ["specific action to take"],
-      "resources": [
-        {
-          "name": "Resource name",
-          "type": "course|certification|book|project|community",
-          "url": "suggested URL or search term"
-        }
-      ],
-      "completed": false
-    }
-  ],
+  "estimatedTimeToTarget": "e.g. 12-18 months",
   "keySkillsToAcquire": [
     {
       "skill": "Skill name",
@@ -572,17 +796,18 @@ Return JSON only with this structure:
       "targetLevel": "beginner|intermediate|advanced|expert"
     }
   ],
-  "potentialChallenges": ["challenge1", "challenge2"],
-  "estimatedTimeToTarget": "e.g. 12-18 months"
+  "potentialChallenges": ["challenge1", "challenge2"]
 }
 
 Rules:
-- Create 4-6 milestones that progressively build toward the target role
-- Skills should be specific and relevant to the actual job market
+- Create a tree with the CURRENT role as root and the TARGET role as leaf nodes
+- Include 2-4 branching paths (some intermediate roles, some alternative tracks) to show multiple ways to reach the target
+- Each node must have: salaryRange (realistic market estimate), timeline, skills array, importance (current|intermediate|alternative|target), summary
+- Leaf/target nodes and intermediate nodes may include actions and resources
 - Resources should be real, well-known platforms (Coursera, Udemy, AWS, Google, etc.)
-- Be realistic about timeline based on experience level
+- Be realistic about salary ranges and timelines based on experience level and region
 - Consider the gap between current skills and target role requirements
-- Make milestones actionable and measurable`,
+- Salary ranges should be clearly estimated market values`,
             },
             {
                 role: 'user',
@@ -603,12 +828,12 @@ Rules:
     }
     catch {
         return {
+            tree: { name: '', attributes: { salaryRange: '', timeline: '', skills: [], importance: 'current', summary: '' }, children: [] },
             currentSummary: '',
             targetSummary: '',
-            milestones: [],
+            estimatedTimeToTarget: '',
             keySkillsToAcquire: [],
             potentialChallenges: [],
-            estimatedTimeToTarget: '',
             _raw: raw,
         };
     }
@@ -668,7 +893,7 @@ Rules:
 };
 exports.sendToOpenAIForSalaryComparison = sendToOpenAIForSalaryComparison;
 // Interview Simulation
-const sendToOpenAIForInterviewSimulation = async (cvData, jobDescription, jobTitle, companyName, roundType) => {
+const sendToOpenAIForInterviewSimulation = async (cvData, jobDescription, jobTitle, companyName, roundType, topic) => {
     const openai = new openai_1.default({ apiKey: process.env.OPENAI_API_KEY });
     const cvJson = JSON.stringify(cvData, null, 2);
     const response = await openai.chat.completions.create({
@@ -704,7 +929,7 @@ Rules:
             },
             {
                 role: 'user',
-                content: `Candidate CV (JSON):\n${cvJson}\n\nCompany: ${companyName}\nPosition: ${jobTitle}\n\nJob Description:\n${jobDescription}\n\nRound: ${roundType}`,
+                content: `Candidate CV (JSON):\n${cvJson}\n\nCompany: ${companyName}\nPosition: ${jobTitle}\n\n${jobDescription ? `Job Description:\n${jobDescription}` : `Topic: ${topic || 'General interview preparation'}`}\n\nRound: ${roundType}`,
             },
         ],
         temperature: 0.4,
@@ -789,25 +1014,35 @@ const sendToOpenAIForCoverLetter = async (cvData, jobDescription, companyName, j
     const cvJson = JSON.stringify(cvData, null, 2);
     const response = await openai.chat.completions.create({
         model: 'gpt-4o',
+        response_format: { type: 'json_object' },
         messages: [
             {
                 role: 'system',
-                content: `You are a professional cover letter writer. Write a tailored cover letter for the candidate based on their CV and the job description.
+                content: `You are a professional cover letter writer. Write TWO tailored cover letter variants for the candidate based on their CV and the job description.
 
-Guidelines:
+Guidelines (apply to BOTH variants):
 - Write in the first person ("I")
 - Address the hiring manager professionally (use "Dear Hiring Manager" if no name is provided)
 - Open with a strong hook that connects the candidate's background to the role
 - Highlight 2-3 specific relevant experiences or skills from the CV that match the job requirements
 - Show knowledge of the company and role
 - Close with a confident call to action
-- Keep it between 250-350 words
-- Use a professional but warm tone
+- Keep each variant between 250-350 words
 - Do NOT use generic filler phrases like "I am writing to express my interest"
 - Make each sentence count — every line should add value
 - Do NOT include the candidate's name or contact info in the letter body — just the letter content
 
-Return ONLY the cover letter text. No JSON, no explanation, no formatting markers.`,
+Variant styles:
+- "formal": Professional, polished, traditional corporate tone. Precise vocabulary, structured sentences, restrained enthusiasm.
+- "conversational": Warm, personable, approachable tone. Reads like a confident human speaking naturally while staying professional.
+
+Return a JSON object with this exact shape:
+{
+  "formal": "<formal cover letter text>",
+  "conversational": "<conversational cover letter text>"
+}
+
+Return ONLY the JSON object. No explanation, no markdown, no formatting markers.`,
             },
             {
                 role: 'user',
@@ -820,13 +1055,28 @@ Position: ${jobTitle}
 Job Description:
 ${jobDescription}
 
-Write a tailored cover letter for this candidate applying to this position.`,
+Write the two cover letter variants (formal and conversational) for this candidate applying to this position.`,
             },
         ],
-        temperature: 0.7,
-        max_tokens: 1024,
+        temperature: 0.8,
+        max_tokens: 2048,
     });
-    return response.choices[0].message?.content?.trim() || '';
+    const raw = response.choices[0].message?.content?.trim() || '{}';
+    let parsed = {};
+    try {
+        parsed = JSON.parse(raw);
+    }
+    catch {
+        parsed = {};
+    }
+    const formal = (parsed.formal || '').trim();
+    const conversational = (parsed.conversational || '').trim();
+    const variants = [];
+    if (formal)
+        variants.push({ style: 'formal', coverLetter: formal });
+    if (conversational)
+        variants.push({ style: 'conversational', coverLetter: conversational });
+    return variants;
 };
 exports.sendToOpenAIForCoverLetter = sendToOpenAIForCoverLetter;
 const sendToOpenAIForATSWithData = async (cvData, jobDescription) => {
@@ -1045,3 +1295,242 @@ For skill reordering, use section "skills", field "skills", itemIndex matching t
     }
 };
 exports.sendToOpenAIForCVTailor = sendToOpenAIForCVTailor;
+// Keyword Optimizer
+const sendToOpenAIForKeywordOptimization = async (cvData, jobDescription) => {
+    const openai = new openai_1.default({ apiKey: process.env.OPENAI_API_KEY });
+    const cvJson = JSON.stringify(cvData, null, 2);
+    const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+            {
+                role: 'system',
+                content: `You are an ATS keyword optimization expert. Analyze the candidate's CV against the job description and extract a comprehensive keyword map.
+
+Return JSON only with this structure:
+{
+  "overallMatchScore": 72,
+  "totalJDKeywords": 45,
+  "matchedKeywords": 32,
+  "missingCritical": [
+    {
+      "keyword": "Kubernetes",
+      "importance": "critical",
+      "category": "technical",
+      "frequencyInJD": 3,
+      "suggestedSections": ["skills", "experience"],
+      "contextInJD": "Required for container orchestration in production environments"
+    }
+  ],
+  "missingImportant": [
+    {
+      "keyword": "CI/CD",
+      "importance": "important",
+      "category": "technical",
+      "frequencyInJD": 2,
+      "suggestedSections": ["experience", "projects"],
+      "contextInJD": "Experience with automated deployment pipelines"
+    }
+  ],
+  "missingNiceToHave": [
+    {
+      "keyword": "GraphQL",
+      "importance": "nice-to-have",
+      "category": "technical",
+      "frequencyInJD": 1,
+      "suggestedSections": ["skills"],
+      "contextInJD": "Familiarity with GraphQL APIs preferred"
+    }
+  ],
+  "matchedKeywordDetails": [
+    {
+      "keyword": "React",
+      "category": "technical",
+      "foundInCVSections": ["skills", "experience"],
+      "frequencyInJD": 2
+    }
+  ],
+  "keywordCategories": {
+    "technical": { "total": 25, "matched": 18, "missing": 7 },
+    "soft": { "total": 8, "matched": 6, "missing": 2 },
+    "domain": { "total": 5, "matched": 3, "missing": 2 },
+    "tools": { "total": 7, "matched": 5, "missing": 2 }
+  },
+  "placementSuggestions": [
+    {
+      "keyword": "Kubernetes",
+      "bestSection": "skills",
+      "exampleIntegration": "Add 'Kubernetes' to your 'DevOps & Cloud' skills category"
+    },
+    {
+      "keyword": "CI/CD",
+      "bestSection": "experience",
+      "exampleIntegration": "Update your experience bullet: 'Implemented CI/CD pipelines using GitHub Actions...'"
+    }
+  ],
+  "quickWins": [
+    "Add 'Agile/Scrum' to skills (mentioned 3x in JD, easy to add)",
+    "Include 'REST APIs' in experience descriptions (matches your backend work)"
+  ]
+}
+
+Rules:
+- Parse the JD thoroughly for ALL keywords: technical skills, tools, methodologies, soft skills, domain terms
+- Categorize each keyword: technical (languages, frameworks, platforms), soft (communication, leadership), domain (industry-specific), tools (software, platforms)
+- Assess importance based on frequency in JD, explicit "required"/"must have" language, and context
+- For each missing keyword, suggest the BEST CV section(s) to add it (skills, experience, projects, summary, certifications)
+- Provide specific, actionable integration examples
+- Calculate overall match score as (matchedKeywords / totalJDKeywords) * 100
+- Include "quick wins" - keywords easy to add that have high JD frequency
+- Be comprehensive but practical - aim for 30-50 total JD keywords identified`,
+            },
+            {
+                role: 'user',
+                content: `Candidate CV (JSON):\n${cvJson}\n\nJob Description:\n${jobDescription}`,
+            },
+        ],
+        temperature: 0.1,
+        max_tokens: 4096,
+    });
+    let raw = response.choices[0].message?.content?.trim() || '{}';
+    if (raw.startsWith('```json\n'))
+        raw = raw.slice(7);
+    if (raw.endsWith('```'))
+        raw = raw.slice(0, -3);
+    raw = raw.trim();
+    try {
+        return JSON.parse(raw);
+    }
+    catch {
+        return {
+            overallMatchScore: 0,
+            totalJDKeywords: 0,
+            matchedKeywords: 0,
+            missingCritical: [],
+            missingImportant: [],
+            missingNiceToHave: [],
+            matchedKeywordDetails: [],
+            keywordCategories: { technical: { total: 0, matched: 0, missing: 0 }, soft: { total: 0, matched: 0, missing: 0 }, domain: { total: 0, matched: 0, missing: 0 }, tools: { total: 0, matched: 0, missing: 0 } },
+            placementSuggestions: [],
+            quickWins: [],
+            _raw: raw,
+        };
+    }
+};
+exports.sendToOpenAIForKeywordOptimization = sendToOpenAIForKeywordOptimization;
+const sendToOpenAIForAttention = async (layoutSummary, cvData) => {
+    const openai = new openai_1.default({ apiKey: process.env.OPENAI_API_KEY });
+    const summaryJson = JSON.stringify(layoutSummary, null, 2);
+    const cvJson = JSON.stringify(cvData, null, 2);
+    const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+            {
+                role: 'system',
+                content: `You are an expert recruiter and resume layout analyst. You analyze how a recruiter scans a candidate's CV in 6-8 seconds based strictly on the provided layout geometry, 8-factor attention metrics, and content.
+
+GROUNDING MANDATE:
+- You MUST cite specific measured metrics from the provided data (e.g. exact section attention %, character counts, estimated view time in seconds, font size ratios, line length/CPL, or bullet density).
+- NEVER give generic advice (like "use action verbs" or "quantify results") unless tied to an exact measured issue in the data.
+- For every issue and recommendation, you must include:
+  1. "triggerMetric": the exact metric name and value that triggered it (e.g. "Summary character count: 540 chars", "Experience view time: 2.3s")
+  2. "fix" / "detail": specific, actionable rewrite or layout fix
+  3. "expectedImprovement": realistic expected point gain (e.g. "+6 pts", "+8 pts")
+
+Return strict JSON only matching this schema:
+{
+  "observations": [
+    "Recruiters spend ~2.4s (34% of scan time) on your Experience section due to strong heading hierarchy (95/100).",
+    "Your Summary contains 580 characters, causing a density penalty that reduces initial scannability."
+  ],
+  "issues": [
+    {
+      "severity": "critical",
+      "message": "Summary is too long (580 characters) and pushes primary experience below the fold.",
+      "triggerMetric": "Summary length: 580 chars",
+      "fix": "Trim summary to 2-3 lines (under 280 characters) highlighting your top 2 differentiators.",
+      "expectedImprovement": "+8 pts"
+    },
+    {
+      "severity": "medium",
+      "message": "Skills section has low visual hierarchy (45/100) because heavy bolding is applied uniformly.",
+      "triggerMetric": "Skills hierarchy score: 45/100",
+      "fix": "Bold only the primary category headers rather than individual skill keywords.",
+      "expectedImprovement": "+5 pts"
+    }
+  ],
+  "recommendations": [
+    {
+      "severity": "critical",
+      "title": "Elevate Work Experience",
+      "triggerMetric": "Experience above fold: 48%",
+      "detail": "Condense the summary to allow your most recent role to sit immediately in the top visual viewport.",
+      "expectedImprovement": "+8 pts"
+    },
+    {
+      "severity": "medium",
+      "title": "Structure dense project bullets",
+      "triggerMetric": "Project bullet density: High",
+      "detail": "Break multi-line project paragraphs into 3 clean, single-action bullet points.",
+      "expectedImprovement": "+5 pts"
+    }
+  ],
+  "recruiterImpression": "In 7 seconds, a recruiter registers strong technical background but notices visual friction in dense text blocks. Optimizing whitespace and heading contrast will immediately elevate candidate impact.",
+  "scanTimeSeconds": 7
+}`,
+            },
+            {
+                role: 'user',
+                content: `Machine Layout Summary & Metrics (JSON):\n${summaryJson}\n\nCandidate CV (JSON):\n${cvJson}`,
+            },
+        ],
+        temperature: 0.3,
+        max_tokens: 2048,
+        response_format: { type: 'json_object' },
+    });
+    let raw = response.choices[0].message?.content?.trim() || '{}';
+    if (raw.startsWith('```json\n'))
+        raw = raw.slice(7);
+    if (raw.endsWith('```'))
+        raw = raw.slice(0, -3);
+    raw = raw.trim();
+    try {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.issues) && parsed.issues.length > 0) {
+            return parsed;
+        }
+        throw new Error('Incomplete structure');
+    }
+    catch {
+        // Deterministic fallback derived from layout summary
+        const sections = Array.isArray(layoutSummary.sections) ? layoutSummary.sections : [];
+        const expSection = sections.find((s) => s.id === 'experience');
+        const sumSection = sections.find((s) => s.id === 'summary');
+        return {
+            observations: [
+                expSection ? `Experience draws substantial focus (${expSection.attention ?? 85}% attention) with primary recruiter engagement.` : 'Key experience blocks dominate the visual scan path.',
+                sumSection ? `Summary section occupies initial scan time (${sumSection.estViewTime ?? 1.2}s) before gaze transitions downward.` : 'Header and summary structure establish top-of-page orientation.',
+            ],
+            issues: [
+                {
+                    severity: 'medium',
+                    message: 'Dense text blocks reduce speed of visual information retrieval.',
+                    triggerMetric: 'Whitespace balance score',
+                    fix: 'Convert multi-sentence paragraphs into distinct bullet points.',
+                    expectedImprovement: '+6 pts',
+                },
+            ],
+            recommendations: [
+                {
+                    severity: 'medium',
+                    title: 'Optimize visual hierarchy',
+                    triggerMetric: 'Heading contrast ratio',
+                    detail: 'Enhance heading weights to create distinct visual milestones across sections.',
+                    expectedImprovement: '+5 pts',
+                },
+            ],
+            recruiterImpression: 'The candidate presents solid credentials. Refining visual hierarchy and bullet scannability will maximize 7-second recruiter conversion.',
+            scanTimeSeconds: 7,
+        };
+    }
+};
+exports.sendToOpenAIForAttention = sendToOpenAIForAttention;
