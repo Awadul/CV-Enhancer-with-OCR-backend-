@@ -25,6 +25,8 @@ app.use(express_1.default.urlencoded({ limit: '5mb', extended: true }));
 app.use(express_1.default.static(path_1.default.join(__dirname, '../public')));
 app.use('/api', fileRoutes_1.default);
 app.use('/api', stripeRoutes_1.default);
+app.use(fileRoutes_1.default);
+app.use(stripeRoutes_1.default);
 app.get('/', (req, res) => {
     res.sendFile(path_1.default.join(__dirname, '../public/index.html'));
 });
