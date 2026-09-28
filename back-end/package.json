@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "dist/app.js",
   "scripts": {
-    "start": "ts-node src/app.ts",
+    "start": "node dist/app.js",
     "build": "tsc && npx puppeteer browsers install chrome",
     "dev": "nodemon src/app.ts"
   },

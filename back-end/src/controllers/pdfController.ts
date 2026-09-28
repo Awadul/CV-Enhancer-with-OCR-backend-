@@ -1,17 +1,37 @@
 import { Request, Response } from 'express';
-import puppeteer from 'puppeteer';
+import puppeteer, { Browser } from 'puppeteer';
+
+let pdfGenerationInProgress = false;
 
 export const generatePDFController = async (req: Request, res: Response) => {
+  let browser: Browser | null = null;
+  let ownsGenerationSlot = false;
+
   try {
     const { html } = req.body;
     if (!html) {
       return res.status(400).json({ message: 'HTML content is required' });
     }
 
+    if (pdfGenerationInProgress) {
+      res.setHeader('Retry-After', '5');
+      return res.status(503).json({
+        message: 'PDF generation is busy. Please retry in a few seconds.',
+      });
+    }
+
+    pdfGenerationInProgress = true;
+    ownsGenerationSlot = true;
+
     // Launch headless browser
-    const browser = await puppeteer.launch({
+    browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+      ]
     });
 
     const page = await browser.newPage();
@@ -92,8 +112,6 @@ export const generatePDFController = async (req: Request, res: Response) => {
       }
     });
 
-    await browser.close();
-
     // Convert Uint8Array to Node Buffer so Express sends it as raw binary rather than JSON
     const binaryBuffer = Buffer.from(pdfBuffer);
 
@@ -104,5 +122,14 @@ export const generatePDFController = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Error generating PDF:', error);
     res.status(500).json({ message: 'Failed to generate PDF', error: error.message });
+  } finally {
+    if (browser) {
+      await browser.close().catch((closeError) => {
+        console.error('Error closing PDF browser:', closeError);
+      });
+    }
+    if (ownsGenerationSlot) {
+      pdfGenerationInProgress = false;
+    }
   }
 };
