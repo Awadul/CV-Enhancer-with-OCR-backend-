@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendToOpenAIForAttention = exports.sendToOpenAIForKeywordOptimization = exports.sendToOpenAIForCVTailor = exports.sendToOpenAIForLinkedInProfile = exports.sendToOpenAIForATSWithData = exports.sendToOpenAIForCoverLetter = exports.sendToOpenAIForInterviewFeedback = exports.sendToOpenAIForInterviewSimulation = exports.sendToOpenAIForSalaryComparison = exports.sendToOpenAIForCareerRoadmap = exports.sendToOpenAIForSalaryInsights = exports.sendToOpenAIForInterviewPrep = exports.sendToOpenAIForSkillGap = exports.sendToOpenAIForResumePolish = exports.optimizeATS = exports.sendToOpenAIForATS = exports.evaluateATS = exports.sendToOpenAI = void 0;
+exports.sendToOpenAIForBioGenerator = exports.sendToOpenAIForAttention = exports.sendToOpenAIForKeywordOptimization = exports.sendToOpenAIForCVTailor = exports.sendToOpenAIForLinkedInProfile = exports.sendToOpenAIForATSWithData = exports.sendToOpenAIForCoverLetter = exports.sendToOpenAIForInterviewFeedback = exports.sendToOpenAIForInterviewSimulation = exports.sendToOpenAIForSalaryComparison = exports.sendToOpenAIForCareerRoadmap = exports.sendToOpenAIForSalaryInsights = exports.sendToOpenAIForInterviewPrep = exports.sendToOpenAIForSkillGap = exports.sendToOpenAIForFixATS = exports.sendToOpenAIForTrimToOnePage = exports.sendToOpenAIForResumePolish = exports.optimizeATS = exports.sendToOpenAIForATS = exports.evaluateATS = exports.sendToOpenAI = void 0;
 const openai_1 = __importDefault(require("openai"));
 const sendToOpenAI = async (content) => {
     const startTime = Date.now();
@@ -511,6 +511,190 @@ Rules:
     }
 };
 exports.sendToOpenAIForResumePolish = sendToOpenAIForResumePolish;
+// Trim to One Page
+const sendToOpenAIForTrimToOnePage = async (cvData, maxPages) => {
+    const openai = new openai_1.default({ apiKey: process.env.OPENAI_API_KEY });
+    const cvJson = JSON.stringify(cvData, null, 2);
+    const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+            {
+                role: 'system',
+                content: `You are a professional resume editor whose job is to shorten a structured CV so it fits on ${maxPages} page(s) without losing its strongest content.
+
+You will receive the candidate's full structured CV as JSON. Produce a trimmed version that fits ${maxPages} page(s) by:
+1. REMOVING the weakest, most redundant, or least relevant bullets — especially from "experience"[].description, "projects"[].description/summary, and "customSections"[].entries[].points.
+2. SHORTENING overlong bullets/summary text (keep ~2 lines per bullet) while keeping quantified achievements and strong action verbs.
+3. Keeping only the most relevant skills/references/languages if the section is too long.
+4. Preserving the exact same CV structure and all identity fields: first_name, last_name, title, photo, contact, sectionOrder, customSections.
+
+Rules:
+- NEVER fabricate experience, education, certifications, or skills the candidate doesn't have.
+- Do not reorder sections unless strictly needed; prefer removing/condensing content.
+- Only produce changes that reduce length — do not add content.
+- Prefer removing whole weaker bullets over truncating strong ones.
+- If the CV already fits ${maxPages} page(s), return the original data with an empty "changes" array.
+
+The response MUST contain the full trimmed CV (a complete JSON object with the same structure you received, ready to be used as the new CV data), plus a transparent record of every change.
+
+Return JSON only with this structure:
+{
+  "trimmedCvData": { ...}, 
+  "changes": [
+    {
+      "type": "removed" | "shortened" | "reordered",
+      "section": "experience",
+      "itemIndex": 0,
+      "field": "description",
+      "label": "Software Engineer at Google",
+      "before": "original bullet text",
+      "after": "new shortened text, or null when the item was removed",
+      "reason": "why this was removed or shortened"
+    }
+  ],
+  "stats": {
+    "bulletsRemoved": 3,
+    "wordsSaved": 55
+  }
+}
+
+Rules for "changes":
+- List each removed bullet or shortened bullet as one entry.
+- For "removed", set "after" to null and "before" to the exact original text.
+- For "shortened", set both "before" and "after".
+- Keep the list accurate and exhaustive — the UI uses it to preview the diff.
+- "stats.wordsSaved" should be the approximate number of words removed across all changes.`,
+            },
+            {
+                role: 'user',
+                content: `Structured CV Data (JSON):\n${cvJson}\n\nTrim this CV to fit on ${maxPages} page(s).`,
+            },
+        ],
+        temperature: 0.2,
+        max_tokens: 8192,
+    });
+    let raw = response.choices[0].message?.content?.trim() || '{}';
+    if (raw.startsWith('```json\n'))
+        raw = raw.slice(7);
+    if (raw.endsWith('```'))
+        raw = raw.slice(0, -3);
+    raw = raw.trim();
+    try {
+        return JSON.parse(raw);
+    }
+    catch {
+        return {
+            trimmedCvData: cvData,
+            changes: [],
+            stats: { bulletsRemoved: 0, wordsSaved: 0 },
+            _raw: raw,
+        };
+    }
+};
+exports.sendToOpenAIForTrimToOnePage = sendToOpenAIForTrimToOnePage;
+// Fix ATS Issues
+const sendToOpenAIForFixATS = async (cvData, jobDescription, issues) => {
+    const openai = new openai_1.default({ apiKey: process.env.OPENAI_API_KEY });
+    const cvJson = JSON.stringify(cvData, null, 2);
+    const jdSection = jobDescription && jobDescription.trim()
+        ? `\n\nJob Description:\n${jobDescription}`
+        : '';
+    const issuesSection = issues &&
+        (issues.failedRules.length ||
+            issues.recommendations.length ||
+            issues.keywordGaps.length ||
+            issues.contentSuggestions.length ||
+            issues.missingSections.length)
+        ? `
+
+ATS Report Issues to resolve (these were flagged by the ATS scanner against THIS CV — prioritize fixing them):
+${issues.failedRules.length ? `Failed rules:\n${issues.failedRules.map(r => `- [${r.section}] ${r.rule}: ${r.details}`).join('\n')}` : ''}
+${issues.recommendations.length ? `Recommendations:\n${issues.recommendations.map(r => `- ${r}`).join('\n')}` : ''}
+${issues.keywordGaps.length ? `Keyword gaps (try to weave these into existing content where they plausibly apply): ${issues.keywordGaps.join(', ')}` : ''}
+${issues.contentSuggestions.length ? `Content suggestions:\n${issues.contentSuggestions.map(r => `- ${r}`).join('\n')}` : ''}
+${issues.missingSections.length ? `Missing sections: ${issues.missingSections.join(', ')}` : ''}
+
+Resolve each listed issue by editing the CV JSON. For every issue, make the minimal, faithful change that satisfies it. If an issue cannot be resolved without inventing information the candidate does not have, skip editing for it and instead add a "changes" entry with type "added" and a "reason" explaining it as a recommendation. Map every change you DO make to the issue it resolves by describing that issue in the change's "reason".`
+        : '';
+    const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+            {
+                role: 'system',
+                content: `You are an ATS (Applicant Tracking System) optimization expert. You receive a candidate's structured CV as JSON and the candidate's ATS report, and you must produce an improved version that resolves the reported issues and scores higher with ATS software while reading stronger to humans.
+
+Resolve the reported issues by editing the candidate's ACTUAL content (never invent anything the candidate does not have):
+1. For each failed rule / recommendation / content suggestion, make the specific edit that addresses it (e.g., normalize inconsistent date formats, tighten redundant wording, start weak bullets with strong action verbs, add quantified achievements only where derivable from the candidate's own information, reorder skill categories so the most relevant appear first).
+2. If keyword gaps are listed and a job description is provided, weave those keywords into existing bullets, skill categories, and the summary ONLY where they plausibly apply to the candidate's real background.
+3. Improve summary wording for scanning.
+4. Fix common ATS format pitfalls you can act on in the content (consistent date formatting, removing odd characters, clear section wording).
+5. For a missing section: add it ONLY if the candidate's existing content clearly supports it; otherwise do NOT fabricate it and instead record it as a recommendation in "changes".
+
+Rules:
+- NEVER fabricate experience, education, certifications, or skills the candidate doesn't have.
+- Preserve the exact same CV structure and all identity fields (first_name, last_name, title, photo, contact, sectionOrder, customSections).
+- Only produce changes that genuinely resolve a reported issue or improve ATS friendliness/readability.
+- If the CV is already strong and has no actionable issues, return it unchanged with an empty "changes" array.
+
+The response MUST contain the full fixed CV (a complete JSON object with the same structure you received, ready to be used as the new CV data), plus a transparent record of every change.
+
+Return JSON only with this structure:
+{
+  "fixedCvData": { ... },
+  "changes": [
+    {
+      "type": "added" | "removed" | "modified" | "shortened" | "reordered",
+      "section": "experience",
+      "itemIndex": 0,
+      "field": "description",
+      "label": "Software Engineer at Google",
+      "before": "original text",
+      "after": "new text, or null when the item was removed",
+      "reason": "Resolves: [Experience] Missing start date — added normalized date from the role."
+    }
+  ],
+  "stats": {
+    "fixesApplied": 5,
+    "keywordsAdded": 4,
+    "sectionsImproved": 3
+  }
+}
+
+Rules for "changes":
+- List each modified bullet, added keyword injection, removed redundant bullet, reordered element, or recommended (unfixable) issue as one entry.
+- For "removed", set "after" to null and "before" to the exact original text.
+- For "added" (new recommended content or an injected keyword), set "before" to "" and "after" to the new text.
+- Each change's "reason" should reference the specific issue it resolves so the UI preview clearly maps to the ATS report.
+- Keep the list exhaustive and accurate — the UI uses it to preview the diff.
+- stats.keywordsAdded should count explicit keyword injections from the job description.`,
+            },
+            {
+                role: 'user',
+                content: `Structured CV Data (JSON):\n${cvJson}${jdSection}${issuesSection}\n\nResolve the ATS report issues above and improve this CV for ATS compatibility${jobDescription && jobDescription.trim() ? ' to match the job description above' : ''}.`,
+            },
+        ],
+        temperature: 0.2,
+        max_tokens: 8192,
+    });
+    let raw = response.choices[0].message?.content?.trim() || '{}';
+    if (raw.startsWith('```json\n'))
+        raw = raw.slice(7);
+    if (raw.endsWith('```'))
+        raw = raw.slice(0, -3);
+    raw = raw.trim();
+    try {
+        return JSON.parse(raw);
+    }
+    catch {
+        return {
+            fixedCvData: cvData,
+            changes: [],
+            stats: { fixesApplied: 0, keywordsAdded: 0, sectionsImproved: 0 },
+            _raw: raw,
+        };
+    }
+};
+exports.sendToOpenAIForFixATS = sendToOpenAIForFixATS;
 // Skill Gap Analysis
 const sendToOpenAIForSkillGap = async (cvData, jobDescription) => {
     const openai = new openai_1.default({ apiKey: process.env.OPENAI_API_KEY });
@@ -1534,3 +1718,79 @@ Return strict JSON only matching this schema:
     }
 };
 exports.sendToOpenAIForAttention = sendToOpenAIForAttention;
+const sendToOpenAIForBioGenerator = async (cvData, formats, tones) => {
+    const openai = new openai_1.default({
+        apiKey: process.env.OPENAI_API_KEY,
+    });
+    const cvJson = JSON.stringify(cvData, null, 2);
+    const formatsJson = JSON.stringify(formats);
+    const tonesJson = JSON.stringify(tones);
+    const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        response_format: { type: 'json_object' },
+        messages: [
+            {
+                role: 'system',
+                content: `You are a professional brand copywriter specializing in concise, impactful professional bios. Generate bios for the candidate based on their CV data.
+
+FORMAT RULES:
+- linkedin_headline: Maximum 220 characters. First-person implied. Keyword-rich. No emoji. Professional and memorable.
+- twitter_bio: Maximum 160 characters. Can use 1-2 relevant emojis. Personality-forward. Engaging and concise.
+- speaker_bio: Maximum 300 words. Third person. Includes credentials and notable achievements. Ends with a call to action or topic expertise.
+- email_signature: Maximum 5 lines. Includes name, title, and contact info formatted professionally. No markdown formatting.
+
+TONE GUIDELINES:
+- executive: Authoritative, concise, results-driven. Emphasizes leadership, impact, and strategic vision. Formal but approachable.
+- technical: Precise, skills-forward, achievement-oriented. Highlights technologies, methodologies, and technical accomplishments. Crisp and direct.
+- creative: Dynamic, personality-driven, memorable. Uses vivid language while staying professional. Shows unique perspective and energy.
+- academic: Formal, credentials-focused, publication-oriented. Emphasizes education, research, citations, and scholarly contributions. Measured and precise.
+
+GENERAL RULES:
+- Do NOT include the candidate's name in the bio body text (except in email_signature where it belongs).
+- Do NOT include contact info in the bio body (except in email_signature where it belongs).
+- Use only the information provided in the CV. If the CV lacks detail for a specific format/tone, produce the best possible bio with available data.
+- Do NOT use generic filler phrases.
+- Return ONLY the JSON object. No explanation, no markdown, no formatting markers.
+
+JSON schema:
+{
+  "bios": [
+    {
+      "format": "linkedin_headline|twitter_bio|speaker_bio|email_signature",
+      "tone": "executive|technical|creative|academic",
+      "bioText": "the generated bio text"
+    }
+  ]
+}`,
+            },
+            {
+                role: 'user',
+                content: `Candidate CV (JSON):
+${cvJson}
+
+Requested formats: ${formatsJson}
+Requested tones: ${tonesJson}
+
+Generate bios for each combination of format and tone requested.`,
+            },
+        ],
+        temperature: 0.7,
+        max_tokens: 2048,
+    });
+    let raw = response.choices[0]?.message?.content?.trim() || '{"bios":[]}';
+    if (raw.startsWith('```json\n'))
+        raw = raw.slice(7);
+    if (raw.endsWith('```'))
+        raw = raw.slice(0, -3);
+    raw = raw.trim();
+    let parsed = {};
+    try {
+        parsed = JSON.parse(raw);
+    }
+    catch {
+        parsed = {};
+    }
+    const bios = (parsed.bios || []).filter((bio) => !!bio.format && !!bio.tone && !!bio.bioText && bio.bioText.trim().length > 0);
+    return bios;
+};
+exports.sendToOpenAIForBioGenerator = sendToOpenAIForBioGenerator;

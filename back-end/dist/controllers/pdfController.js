@@ -5,16 +5,32 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generatePDFController = void 0;
 const puppeteer_1 = __importDefault(require("puppeteer"));
+let pdfGenerationInProgress = false;
 const generatePDFController = async (req, res) => {
+    let browser = null;
+    let ownsGenerationSlot = false;
     try {
         const { html } = req.body;
         if (!html) {
             return res.status(400).json({ message: 'HTML content is required' });
         }
+        if (pdfGenerationInProgress) {
+            res.setHeader('Retry-After', '5');
+            return res.status(503).json({
+                message: 'PDF generation is busy. Please retry in a few seconds.',
+            });
+        }
+        pdfGenerationInProgress = true;
+        ownsGenerationSlot = true;
         // Launch headless browser
-        const browser = await puppeteer_1.default.launch({
+        browser = await puppeteer_1.default.launch({
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+            ]
         });
         const page = await browser.newPage();
         // Set A4 viewport at 96 DPI
@@ -79,7 +95,6 @@ const generatePDFController = async (req, res) => {
                 right: '0px'
             }
         });
-        await browser.close();
         // Convert Uint8Array to Node Buffer so Express sends it as raw binary rather than JSON
         const binaryBuffer = Buffer.from(pdfBuffer);
         // Send binary response
@@ -90,6 +105,16 @@ const generatePDFController = async (req, res) => {
     catch (error) {
         console.error('Error generating PDF:', error);
         res.status(500).json({ message: 'Failed to generate PDF', error: error.message });
+    }
+    finally {
+        if (browser) {
+            await browser.close().catch((closeError) => {
+                console.error('Error closing PDF browser:', closeError);
+            });
+        }
+        if (ownsGenerationSlot) {
+            pdfGenerationInProgress = false;
+        }
     }
 };
 exports.generatePDFController = generatePDFController;
