@@ -1,3 +1,4 @@
+import { bypassLocalCheckLimits } from './localCheckLimits';
 import { Request, Response, NextFunction } from 'express';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
@@ -34,6 +35,7 @@ export function createAiAccess(getSupabase: typeof getClient = getClient) {
 
   const reserveQuota = (feature: Feature) => async (req: AccessRequest, res: Response, next: NextFunction) => {
     if (!req.userId) return res.status(401).json({ message: 'Sign in to use this AI feature.' });
+    if (bypassLocalCheckLimits(req)) return next();
     try {
       // The service-only RPC resolves the plan and increments under a database lock.
       // No plan, quota, period or user identity is trusted from the request body.

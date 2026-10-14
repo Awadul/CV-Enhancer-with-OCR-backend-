@@ -1,3 +1,4 @@
+import { bypassLocalCheckLimits } from './localCheckLimits';
 import { Request, Response, NextFunction } from 'express';
 
 /**
@@ -28,6 +29,7 @@ export interface RateLimitOptions {
   limit?: number;
   windowMs?: number;
   message?: string;
+  localCheckBypass?: boolean;
 }
 
 export function rateLimiter(options: RateLimitOptions = {}) {
@@ -36,6 +38,7 @@ export function rateLimiter(options: RateLimitOptions = {}) {
   const windowMs = options.windowMs ?? WINDOW_MS;
 
   return (req: Request, res: Response, next: NextFunction) => {
+    if (options.localCheckBypass && bypassLocalCheckLimits(req)) return next();
     // Authenticated users are NOT rate-limited here — their limit is
     // enforced per-plan in the controller.
     if ((req as any).userId) {

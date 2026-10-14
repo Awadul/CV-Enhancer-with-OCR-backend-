@@ -1,3 +1,4 @@
+import { bypassLocalCheckLimits } from './localCheckLimits';
 import { Request, Response, NextFunction } from 'express';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createHmac } from 'crypto';
@@ -29,14 +30,21 @@ export function validateTailoringInput(req: Request, res: Response, next: NextFu
 export function createTailoringAccess(getSupabase: typeof getClient = getClient, secret = () => process.env.GUEST_QUOTA_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY) {
   const check = (reserve: boolean, continueOnAllowed = false) => async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const db = getSupabase();
+      const db = req.headers.authorization || !bypassLocalCheckLimits(req) ? getSupabase() : null;
       let userId: string | null = null;
       if (req.headers.authorization) {
         const match = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization);
         if (!match) return res.status(401).json({ code: 'AUTH_REQUIRED', message: 'Sign in again to continue.' });
-        const { data, error } = await db.auth.getUser(match[1]);
+        const { data, error } = await db!.auth.getUser(match[1]);
         if (error || !data.user) return res.status(401).json({ code: 'AUTH_REQUIRED', message: 'Your session expired. Sign in again.' });
         userId = data.user.id;
+      }
+      if (bypassLocalCheckLimits(req)) {
+        const data = { allowed: true, remaining: 4, limit: 4, reset_at: new Date(Date.now() + 86400000).toISOString(), guest: !req.headers.authorization, local_unlimited: true };
+        res.locals.tailoringAllowance = data;
+        res.setHeader('Cache-Control', 'no-store');
+        if (!reserve && !continueOnAllowed) return res.json(data);
+        return next();
       }
       // Never trust raw forwarding headers or a browser-supplied identity/quota.
       const address = req.ip || req.socket.remoteAddress;
@@ -46,7 +54,7 @@ export function createTailoringAccess(getSupabase: typeof getClient = getClient,
         if (!key || !address || !isIP(address)) throw new Error('Guest identity unavailable');
         guestKey = createHmac('sha256', key).update(`tailoring-v1:${address.replace(/^::ffff:/, '')}`).digest('hex');
       }
-      const { data, error } = await db.rpc('check_tailoring_allowance', { p_user_id: userId, p_guest_key: guestKey, p_reserve: reserve });
+      const { data, error } = await db!.rpc('check_tailoring_allowance', { p_user_id: userId, p_guest_key: guestKey, p_reserve: reserve });
       if (error || !data || typeof data.allowed !== 'boolean' || !Number.isInteger(data.remaining) || typeof data.reset_at !== 'string' || !Number.isFinite(Date.parse(data.reset_at)) || !Number.isInteger(data.limit) || data.limit < 1 || data.remaining < 0 || data.remaining > data.limit) throw new Error('Quota unavailable');
       res.locals.tailoringAllowance = data;
       res.setHeader('Cache-Control', 'no-store');

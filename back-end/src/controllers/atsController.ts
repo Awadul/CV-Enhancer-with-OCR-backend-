@@ -1,3 +1,4 @@
+import { bypassLocalCheckLimits } from '../middleware/localCheckLimits';
 import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -48,7 +49,7 @@ export const checkATS = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Could not extract text from the provided CV.' });
     }
 
-    if (userId) {
+    if (userId && !bypassLocalCheckLimits(req)) {
       const { data: quota, error } = await getSupabase().rpc('reserve_ats_usage', { p_user_id: userId });
       if (error || !quota || typeof quota.allowed !== 'boolean') {
         return res.status(503).json({ message: 'Usage checks are temporarily unavailable. Please try again later.' });
