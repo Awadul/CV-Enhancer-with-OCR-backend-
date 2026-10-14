@@ -21,7 +21,7 @@ export async function searchJobsHandler(req: Request, res: Response) {
     const result = await searchJobs(searchQuery, page || 1, numPages || 1, country || 'us');
 
     if (result.status === 'ERROR') {
-      return res.status(500).json({ message: 'Job search failed' });
+      return res.status(503).json({ message: 'Our job listing provider is unavailable. Please try again shortly.', code: 'JOB_PROVIDER_UNAVAILABLE' });
     }
 
     const sanitized = result.data.map(job => ({
@@ -44,7 +44,7 @@ export async function searchJobsHandler(req: Request, res: Response) {
     res.json({ status: 'OK', data: sanitized });
   } catch (error) {
     console.error('Error in job search:', error);
-    res.status(500).json({ message: 'Internal server error', error: (error as Error).message });
+    res.status(503).json({ message: 'Job search is temporarily unavailable. Please try again later or contact support if this continues.', code: 'JOB_SEARCH_UNAVAILABLE' });
   }
 }
 

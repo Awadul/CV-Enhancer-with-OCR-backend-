@@ -38,6 +38,7 @@ function adzunaRequest(path: string): Promise<AdzunaAPIResponse> {
   return new Promise((resolve, reject) => {
     const appId = process.env.ADZUNA_APP_ID || '';
     const appKey = process.env.ADZUNA_APP_KEY || '';
+    if (!appId.trim() || !appKey.trim()) { reject(new Error('JOB_PROVIDER_NOT_CONFIGURED')); return; }
     const separator = path.includes('?') ? '&' : '?';
     const fullPath = `${path}${separator}app_id=${encodeURIComponent(appId)}&app_key=${encodeURIComponent(appKey)}&content-type=application/json`;
 
@@ -54,6 +55,7 @@ function adzunaRequest(path: string): Promise<AdzunaAPIResponse> {
       const chunks: Buffer[] = [];
       res.on('data', (chunk: Buffer) => chunks.push(chunk));
       res.on('end', () => {
+        if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) { reject(new Error('JOB_PROVIDER_UNAVAILABLE')); return; }
         const body = Buffer.concat(chunks).toString();
         try {
           const parsed = JSON.parse(body);
@@ -68,6 +70,7 @@ function adzunaRequest(path: string): Promise<AdzunaAPIResponse> {
       });
     });
 
+    req.setTimeout(15000, () => req.destroy(new Error('JOB_PROVIDER_TIMEOUT')));
     req.on('error', (err) => {
       console.error('[Adzuna API] Request error:', err.message);
       reject(err);
