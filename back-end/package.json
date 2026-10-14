@@ -15,7 +15,7 @@
     "audit:environment": "node scripts/audit-environment.cjs",
     "migrations:bundle": "node scripts/build-migration-bundle.cjs",
     "test:trust": "tsc && node tests/trustPolicy.test.cjs && node tests/trustRoutes.test.cjs && node tests/trustMigration.test.mjs",
-    "test:tailoring": "tsc && node tests/tailoringAccess.test.cjs && node tests/guestTailoringMigration.test.mjs && node tests/cvImport.test.cjs"
+    "test:tailoring": "tsc && node tests/tailoringAccess.test.cjs && node tests/guestTailoringMigration.test.mjs && node tests/cvImport.test.cjs && node tests/cvImportProgress.test.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.4",

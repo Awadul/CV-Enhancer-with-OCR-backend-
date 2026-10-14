@@ -16,14 +16,29 @@ return async (req: Request,res: Response) => {
   const abort = new AbortController();
   const cancel = () => abort.abort();
   res.once('close',cancel);
+  const streaming = req.get('accept')?.includes('application/x-ndjson') === true;
+  if (streaming) {
+    res.set({ 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store, no-transform', 'X-Accel-Buffering': 'no' });
+    res.flushHeaders();
+  }
+  const event = (value: Record<string, unknown>) => { if (streaming && !res.destroyed) res.write(JSON.stringify(value) + '\n'); };
+  const progress = (percent: number, stage: string) => event({ type: 'progress', percent, stage });
   try {
+    progress(25, 'Reading your CV');
     const text = await extract(req.file!.buffer,res.locals.importExtension,abort.signal);
+    progress(50, 'Preparing tailored suggestions');
     const result = await generate(text,req.body.jobTitle,req.body.jobDescription,abort.signal);
+    progress(75, 'Checking extracted details');
     const cvData = normalizeImportedCV(result.cvData);
     const suggestions = (Array.isArray(result.suggestions) ? result.suggestions : []).slice(0,8).filter((v:any) => v && ['experience','projects'].includes(v.section) && ['description','summary'].includes(v.field) && Number.isInteger(v.itemIndex) && v.itemIndex>=0 && ['itemLabel','current','improved','reason'].every(key=>typeof v[key]==='string' && v[key].length<=6000));
-    if (!res.destroyed) res.json({cvData,summary:typeof result.summary==='string'?result.summary.slice(0,6000):'',suggestions,allowance:res.locals.tailoringAllowance});
+    const body = {cvData,summary:typeof result.summary==='string'?result.summary.slice(0,6000):'',suggestions,allowance:res.locals.tailoringAllowance};
+    if (!res.destroyed) {
+      if (streaming) { event({ type: 'result', body }); res.end(); }
+      else res.json(body);
+    }
   } catch {
-    if (!res.destroyed) res.status(422).json({message:'The CV could not be imported. Use a readable PDF (up to 20 pages), DOCX or TXT, or enter your details manually. This attempt counts toward your allowance; your existing draft is unchanged.',allowance:res.locals.tailoringAllowance});
+    const body = {message:'The CV could not be imported. Use a readable PDF (up to 20 pages), DOCX or TXT, or enter your details manually. This attempt counts toward your allowance; your existing draft is unchanged.',allowance:res.locals.tailoringAllowance};
+    if (!res.destroyed) { if (streaming) { event({ type: 'error', body }); res.end(); } else res.status(422).json(body); }
   } finally { res.off('close',cancel); if (req.file) req.file.buffer=Buffer.alloc(0); }
 };
 
