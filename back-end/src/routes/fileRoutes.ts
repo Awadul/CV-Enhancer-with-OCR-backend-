@@ -23,10 +23,15 @@ import { rateLimiter } from '../middleware/rateLimiter';
 import { optionalAuth } from '../middleware/authMiddleware';
 import { requireAiUser, requireAiQuota, validateAiInput } from '../middleware/aiAccess';
 
+import { tailoringAccess, validateTailoringInput } from '../middleware/tailoringAccess';
+
+import { cvImportSlots, receiveCVImport } from '../middleware/cvImportUpload';
+import { importAndTailorCV } from '../controllers/cvImportTailorController';
+
 const router = Router();
 
-router.post('/file/upload', upload.single('file'), uploadFile);
-router.post('/file/parse-text', parseText);
+router.post('/file/upload', rateLimiter({ limit: 8, windowMs: 60000 }), requireAiUser, tailoringAccess.preflight, cvImportSlots, upload.single('file'), tailoringAccess.reserve, uploadFile);
+router.post('/file/parse-text', rateLimiter({ limit: 8, windowMs: 60000 }), requireAiUser, (req, res, next) => { if (typeof req.body?.text !== 'string' || !req.body.text.trim() || req.body.text.length > 60000) { res.status(400).json({ message: 'Provide CV text of at most 60000 characters.' }); return; } next(); }, tailoringAccess.reserve, parseText);
 router.post('/file/ats-score', getATSAnalysisController);
 router.post('/file/ats-optimize', optimizeATSController);
 router.post('/pdf/generate', generatePDFController);
@@ -44,7 +49,9 @@ router.post('/interview/feedback', getFeedback);
 router.post('/salary/insights', getSalaryInsights);
 router.post('/salary/compare', compareSalaries);
 router.post('/career/roadmap', generateCareerRoadmap);
-router.post('/cv/tailor', tailorCV);
+router.get('/cv/tailor/allowance', rateLimiter({ limit: 30, windowMs: 60000, message: 'Please wait before checking usage again.' }), tailoringAccess.allowance);
+router.post('/cv/tailor/upload', rateLimiter({ limit: 8, windowMs: 60000, message: 'Please wait before importing again.' }), tailoringAccess.preflight, cvImportSlots, receiveCVImport, tailoringAccess.reserve, importAndTailorCV);
+router.post('/cv/tailor', rateLimiter({ limit: 12, windowMs: 60000, message: 'Please wait before retrying tailoring.' }), validateTailoringInput, tailoringAccess.reserve, tailorCV);
 router.post('/linkedin/analyze', upload.single('file'), analyzeLinkedInProfile);
 router.post('/ats/keyword-optimize', optimizeKeywords);
 router.post('/keyword/density', analyzeKeywordDensity);

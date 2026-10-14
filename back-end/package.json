@@ -10,10 +10,11 @@
     "test:migrations": "node tests/migrations.test.mjs",
     "typecheck": "tsc --noEmit",
     "test:billing": "tsc && node tests/billingPolicy.test.cjs",
-    "check:release": "npm run typecheck && npm run test:ai-access && npm run test:billing && npm run test:migrations && npm run test:trust",
+    "check:release": "npm run typecheck && npm run test:ai-access && npm run test:billing && npm run test:migrations && npm run test:trust && npm run test:tailoring",
     "audit:environment": "node scripts/audit-environment.cjs",
     "migrations:bundle": "node scripts/build-migration-bundle.cjs",
-    "test:trust": "tsc && node tests/trustPolicy.test.cjs && node tests/trustRoutes.test.cjs && node tests/trustMigration.test.mjs"
+    "test:trust": "tsc && node tests/trustPolicy.test.cjs && node tests/trustRoutes.test.cjs && node tests/trustMigration.test.mjs",
+    "test:tailoring": "tsc && node tests/tailoringAccess.test.cjs && node tests/guestTailoringMigration.test.mjs && node tests/cvImport.test.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.4",
@@ -26,6 +27,7 @@
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
     "pdf2pic": "^3.2.0",
+    "pdfjs-dist": "^5.6.205",
     "puppeteer": "^25.2.1",
     "stripe": "^14.20.0",
     "tesseract.js": "^5.1.1"

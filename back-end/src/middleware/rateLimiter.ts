@@ -47,6 +47,14 @@ export function rateLimiter(options: RateLimitOptions = {}) {
     const record = store.get(ip);
 
     if (!record || now - record.firstSeen > windowMs) {
+      // Keep anonymous-network bookkeeping bounded under distributed traffic.
+      if (!record && store.size >= 10_000) {
+        for (const [key, value] of store) if (now - value.firstSeen > windowMs) store.delete(key);
+        if (store.size >= 10_000) {
+          res.set('Retry-After', '60');
+          return res.status(503).json({ message: 'Too many active requests. Please try again shortly.' });
+        }
+      }
       // Start a fresh window.
       store.set(ip, { count: 1, firstSeen: now });
       return next();
