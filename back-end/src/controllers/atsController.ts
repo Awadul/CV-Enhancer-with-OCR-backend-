@@ -6,15 +6,6 @@ import { checkATSRules, cvDataToText } from '../utils/atsChecker';
 import { sendToOpenAIForATSWithData } from '../utils/openaiClient';
 import { createClient } from '@supabase/supabase-js';
 
-// Plan-based monthly ATS scan limits. Must stay in sync with the frontend
-// USAGE_LIMITS in src/data/pricing.ts.
-const PLAN_ATS_LIMITS: Record<string, number> = {
-  starter: 3,
-  pro: 999,
-  premium: 999,
-  enterprise: 999,
-};
-
 let supabase: any = null;
 function getSupabase() {
   if (!supabase) {
@@ -29,33 +20,6 @@ function getSupabase() {
 export const checkATS = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId as string | undefined;
-    const userPlan = (req as any).userPlan as string | undefined;
-
-    // Enforce per-plan monthly limit for authenticated users.
-    if (userId) {
-      const limit = PLAN_ATS_LIMITS[userPlan || 'starter'] ?? 3;
-      const client = getSupabase();
-
-      const { data: usage, error: usageErr } = await client
-        .from('user_usage')
-        .select('atsScansPerMonth')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      if (usageErr) {
-        console.warn('[checkATS] usage lookup failed:', usageErr.message);
-      }
-
-      const used = usage?.atsScansPerMonth ?? 0;
-      if (used >= limit) {
-        return res.status(429).json({
-          message:
-            limit <= 3
-              ? 'You have used your 3 free ATS scans for this month. Upgrade your plan for unlimited scans.'
-              : 'You have reached your monthly ATS scan limit. Upgrade your plan for more scans.',
-        });
-      }
-    }
 
     const jobDescription: string | undefined = req.body.jobDescription;
     let cvText = '';
@@ -84,6 +48,14 @@ export const checkATS = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Could not extract text from the provided CV.' });
     }
 
+    if (userId) {
+      const { data: quota, error } = await getSupabase().rpc('reserve_ats_usage', { p_user_id: userId });
+      if (error || !quota || typeof quota.allowed !== 'boolean') {
+        return res.status(503).json({ message: 'Usage checks are temporarily unavailable. Please try again later.' });
+      }
+      if (!quota.allowed) return res.status(429).json({ message: 'Your monthly ATS scan limit has been reached.' });
+    }
+
     // 1. Rule-based check (fast) — always uses text
     const ruleResult = checkATSRules(cvText, jobDescription);
 
@@ -99,18 +71,6 @@ export const checkATS = async (req: Request, res: Response) => {
     } catch (aiErr) {
       console.error('AI ATS analysis failed, returning rule results only:', aiErr);
       aiResult = null;
-    }
-
-    // Increment usage for authenticated users only.
-    if (userId) {
-      try {
-        await getSupabase().rpc('increment_usage', {
-          p_user_id: userId,
-          p_feature: 'atsScansPerMonth',
-        });
-      } catch (incErr) {
-        console.warn('[checkATS] increment_usage failed:', (incErr as Error).message);
-      }
     }
 
     res.json({

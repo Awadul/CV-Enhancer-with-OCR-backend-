@@ -18,17 +18,9 @@ interface RateRecord {
 
 const WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-const store = new Map<string, RateRecord>();
-
 function getClientIp(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.length > 0) {
-    // x-forwarded-for can be a comma-separated list; take the first hop.
-    return forwarded.split(',')[0].trim();
-  }
-  if (Array.isArray(forwarded)) {
-    return forwarded[0];
-  }
+  // Express resolves forwarding only through explicitly trusted proxies.
+  // Reading the raw header here would allow callers to choose their quota key.
   return req.ip || (req.socket.remoteAddress as string) || 'unknown';
 }
 
@@ -38,6 +30,7 @@ export interface RateLimitOptions {
 }
 
 export function rateLimiter(options: RateLimitOptions = {}) {
+  const store = new Map<string, RateRecord>();
   const limit = options.limit ?? 1;
   const windowMs = options.windowMs ?? WINDOW_MS;
 

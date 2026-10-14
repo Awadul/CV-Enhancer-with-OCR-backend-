@@ -21,6 +21,7 @@ import { generateBios } from '../controllers/bioGeneratorController';
 import upload from '../middleware/multerConfig';
 import { rateLimiter } from '../middleware/rateLimiter';
 import { optionalAuth } from '../middleware/authMiddleware';
+import { requireAiUser, requireAiQuota, validateAiInput } from '../middleware/aiAccess';
 
 const router = Router();
 
@@ -34,8 +35,8 @@ router.post('/jobs/search', searchJobsHandler);
 router.post('/jobs/extract', extractFromUrlHandler);
 router.post('/cover-letter/generate', generateCoverLetter);
 router.post('/resume/polish', polishResume);
-router.post('/resume/trim-one-page', trimToOnePage);
-router.post('/resume/fix-ats', fixATS);
+router.post('/resume/trim-one-page', requireAiUser, validateAiInput('resume_trim'), requireAiQuota('resume_trim'), trimToOnePage);
+router.post('/resume/fix-ats', requireAiUser, validateAiInput('ats_fix'), requireAiQuota('ats_fix'), fixATS);
 router.post('/skills/gap', analyzeSkillGap);
 router.post('/interview/prep', generateInterviewPrep);
 router.post('/interview/simulate', startSimulation);
@@ -48,6 +49,6 @@ router.post('/linkedin/analyze', upload.single('file'), analyzeLinkedInProfile);
 router.post('/ats/keyword-optimize', optimizeKeywords);
 router.post('/keyword/density', analyzeKeywordDensity);
 router.post('/attention/analyze', optionalAuth, rateLimiter({ limit: 5 }), analyzeAttention);
-router.post('/bios/generate', generateBios);
+router.post('/bios/generate', requireAiUser, validateAiInput('bios'), requireAiQuota('bios'), generateBios);
 
-export default router; 
+export default router;

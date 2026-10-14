@@ -57,11 +57,11 @@ export async function optionalAuth(req: AuthedRequest, _res: Response, next: Nex
     let userPlan = 'starter';
     const { data: sub } = await client
       .from('user_subscriptions')
-      .select('plan_id')
+      .select('plan_id, status, current_period_end')
       .eq('user_id', userId)
       .maybeSingle();
 
-    if (sub?.plan_id) {
+    if (sub?.plan_id && ['active', 'trialing'].includes(sub.status) && (!sub.current_period_end || Date.parse(sub.current_period_end) > Date.now())) {
       userPlan = sub.plan_id;
     }
 

@@ -1,15 +1,16 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import fileRoutes from './routes/fileRoutes';
 import stripeRoutes from './routes/stripeRoutes';
 import { deleteAllFilesInUploads, scheduleDailyUploadsCleanup } from './utils/fileCleanup';
 
-dotenv.config();
-
 const app = express();
 const PORT = parseInt(process.env.PORT || '7000', 10);
+const proxyHops = Number(process.env.TRUST_PROXY_HOPS || '0');
+if (!Number.isInteger(proxyHops) || proxyHops < 0 || proxyHops > 5) throw new Error('TRUST_PROXY_HOPS must be an integer from 0 to 5.');
+if (proxyHops > 0) app.set('trust proxy', proxyHops);
 
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
@@ -20,6 +21,7 @@ app.use(cors({ origin: ['https://mynext9to5.com', 'https://www.mynext9to5.com', 
 
 // Raw body parser for Stripe webhooks (MUST come before express.json)
 app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
+app.use('/stripe/webhook', express.raw({ type: 'application/json' }));
 
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ limit: '5mb', extended: true }));
@@ -55,4 +57,4 @@ const startServer = async () => {
   }
 };
 
-startServer(); 
+startServer();

@@ -1,16 +1,16 @@
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { Router, Request, Response } from 'express';
+import { AccessRequest, requireUser } from '../middleware/aiAccess';
+import { billingUser, billingOrigin, checkoutPolicy, BillingPolicyError } from '../utils/billingPolicy';
 
-const stripeKey = process.env.STRIPE_SECRET_KEY;
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 let stripe: Stripe | null = null;
 let supabase: any = null;
 
 function getStripe(): Stripe {
   if (!stripe) {
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeKey) throw new Error('STRIPE_SECRET_KEY is not configured');
     stripe = new Stripe(stripeKey, {
       apiVersion: '2023-10-16' as any, // specify apiVersion compatible with the installed packages if needed
@@ -21,6 +21,8 @@ function getStripe(): Stripe {
 
 function getSupabase() {
   if (!supabase) {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !supabaseServiceKey) throw new Error('Supabase credentials not configured');
     supabase = createClient(supabaseUrl, supabaseServiceKey);
   }
@@ -38,143 +40,58 @@ router.get('/stripe/config', (_req: Request, res: Response) => {
   res.json({ publishableKey });
 });
 
-// Create a Stripe Checkout Session
-router.post('/stripe/create-checkout', async (req: Request, res: Response) => {
+// Billing identity always comes from the verified token, never from body metadata.
+router.post('/stripe/create-checkout', requireUser, async (req: AccessRequest, res: Response) => {
   try {
-    const { priceId, userId, successUrl, cancelUrl } = req.body;
-
-    if (!priceId || !userId || !successUrl || !cancelUrl) {
-      return res.status(400).json({ error: 'Missing required fields: priceId, userId, successUrl, cancelUrl' });
-    }
-
+    const userId = billingUser(req);
+    const { priceId, successUrl, cancelUrl } = checkoutPolicy(req.body || {});
+    const sb = getSupabase();
+    const { data: subscription, error: lookupError } = await sb.from('user_subscriptions')
+      .select('stripe_customer_id').eq('user_id', userId).maybeSingle();
+    if (lookupError) throw lookupError;
     const s = getStripe();
-    let customerId: string | undefined;
-
-    const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-    const isUuid = uuidRegex.test(userId);
-
-    if (isUuid) {
-      const sb = getSupabase();
-
-      // Get or create Stripe customer
-      try {
-        const { data: subscription } = await sb
-          .from('user_subscriptions')
-          .select('stripe_customer_id')
-          .eq('user_id', userId)
-          .maybeSingle();
-
-        customerId = subscription?.stripe_customer_id;
-      } catch (dbErr) {
-        console.warn('Database query failed (non-blocking for checkout):', dbErr);
-      }
-
-      if (!customerId) {
-        let email: string | undefined;
-        try {
-          const { data: user } = await sb.auth.admin.getUserById(userId);
-          email = user?.user?.email;
-        } catch (authErr) {
-          console.warn('Auth user query failed (non-blocking for checkout):', authErr);
-        }
-
-        const customer = await s.customers.create({
-          email: email || undefined,
-          metadata: { userId },
-        });
-        customerId = customer.id;
-
-        try {
-          await sb.from('user_subscriptions').upsert({
-            user_id: userId,
-            stripe_customer_id: customerId,
-            plan_id: 'starter',
-            status: 'active',
-          }, { onConflict: 'user_id' });
-        } catch (dbErr) {
-          console.warn('Database upsert failed (non-blocking for checkout):', dbErr);
-        }
-      }
-    } else {
-      // Mock user fallback
-      console.log(`Mock user detected: ${userId}. Creating Stripe customer without Supabase lookup.`);
+    let customerId = subscription?.stripe_customer_id;
+    if (!customerId) {
       const customer = await s.customers.create({
-        email: `${userId}@example.com`,
+        email: req.userEmail || undefined,
         metadata: { userId },
-      });
+      }, { idempotencyKey: `customer:${userId}` });
       customerId = customer.id;
+      // Do not overwrite an existing paid plan or subscription status.
+      const { error } = await sb.from('user_subscriptions').upsert({
+        user_id: userId, stripe_customer_id: customerId,
+      }, { onConflict: 'user_id' });
+      if (error) throw error;
     }
-
     const session = await s.checkout.sessions.create({
-      customer: customerId,
-      mode: 'subscription',
+      customer: customerId, mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      metadata: { userId },
+      success_url: successUrl, cancel_url: cancelUrl, metadata: { userId },
     });
-
     res.json({ url: session.url });
-  } catch (err: any) {
-    console.error('Stripe create-checkout error:', err);
-    res.status(500).json({ error: err.message || 'Failed to create checkout session' });
+  } catch (error) {
+    console.error('Stripe checkout failed:', error);
+    const policy = error instanceof BillingPolicyError;
+    res.status(policy ? error.status : 503).json({ error: policy ? error.message : 'Billing is temporarily unavailable.' });
   }
 });
 
-// Create Customer Portal session
-router.post('/stripe/customer-portal', async (req: Request, res: Response) => {
+router.post('/stripe/customer-portal', requireUser, async (req: AccessRequest, res: Response) => {
   try {
-    const { userId } = req.body;
-    if (!userId) {
-      return res.status(400).json({ error: 'userId is required' });
-    }
-
-    const s = getStripe();
-    let customerId: string | undefined;
-
-    const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-    const isUuid = uuidRegex.test(userId);
-
-    if (isUuid) {
-      const sb = getSupabase();
-      try {
-        const { data: subscription } = await sb
-          .from('user_subscriptions')
-          .select('stripe_customer_id')
-          .eq('user_id', userId)
-          .maybeSingle();
-
-        customerId = subscription?.stripe_customer_id;
-      } catch (dbErr) {
-        console.error('Portal: Database query failed:', dbErr);
-      }
-    } else {
-      // Mock user fallback
-      console.log(`Portal: Mock user detected: ${userId}. Searching for customer by metadata.`);
-      try {
-        const customers = await s.customers.search({
-          query: `metadata['userId']:'${userId}'`,
-          limit: 1,
-        });
-        customerId = customers.data[0]?.id;
-      } catch (searchErr) {
-        console.error('Portal: Customer search failed:', searchErr);
-      }
-    }
-
-    if (!customerId) {
-      return res.status(400).json({ error: 'No Stripe customer found' });
-    }
-
-    const session = await s.billingPortal.sessions.create({
-      customer: customerId,
-      return_url: `${req.headers.origin || 'http://localhost:3001'}/app/dashboard`,
+    const userId = billingUser(req);
+    const { data: subscription, error } = await getSupabase().from('user_subscriptions')
+      .select('stripe_customer_id').eq('user_id', userId).maybeSingle();
+    if (error) throw error;
+    if (!subscription?.stripe_customer_id) return res.status(404).json({ error: 'No billing account was found for your account.' });
+    const session = await getStripe().billingPortal.sessions.create({
+      customer: subscription.stripe_customer_id,
+      return_url: `${billingOrigin()}/app/dashboard`,
     });
-
     res.json({ url: session.url });
-  } catch (err: any) {
-    console.error('Stripe portal error:', err);
-    res.status(500).json({ error: err.message || 'Failed to create portal session' });
+  } catch (error) {
+    console.error('Stripe portal failed:', error);
+    const policy = error instanceof BillingPolicyError;
+    res.status(policy ? error.status : 503).json({ error: policy ? error.message : 'Billing is temporarily unavailable.' });
   }
 });
 
