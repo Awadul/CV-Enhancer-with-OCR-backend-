@@ -4,6 +4,7 @@ import path from 'path';
 import cors from 'cors';
 import fileRoutes from './routes/fileRoutes';
 import stripeRoutes from './routes/stripeRoutes';
+import trustRoutes from './routes/trustRoutes';
 import { deleteAllFilesInUploads, scheduleDailyUploadsCleanup } from './utils/fileCleanup';
 
 const app = express();
@@ -30,6 +31,8 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 app.use('/api', fileRoutes);
 app.use('/api', stripeRoutes);
+app.use('/api', trustRoutes);
+app.use(trustRoutes);
 app.use(fileRoutes);
 app.use(stripeRoutes);
 

@@ -27,6 +27,7 @@ function getClientIp(req: Request): string {
 export interface RateLimitOptions {
   limit?: number;
   windowMs?: number;
+  message?: string;
 }
 
 export function rateLimiter(options: RateLimitOptions = {}) {
@@ -55,7 +56,7 @@ export function rateLimiter(options: RateLimitOptions = {}) {
       const retryAfterSec = Math.ceil((record.firstSeen + windowMs - now) / 1000);
       res.set('Retry-After', String(retryAfterSec));
       return res.status(429).json({
-        message: 'You have used your free ATS check for this month. Sign in to get more scans, or come back next month.',
+        message: options.message || 'You have used your free ATS check for this month. Sign in to get more scans, or come back next month.',
         retryAfter: retryAfterSec,
       });
     }

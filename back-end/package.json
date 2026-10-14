@@ -10,9 +10,10 @@
     "test:migrations": "node tests/migrations.test.mjs",
     "typecheck": "tsc --noEmit",
     "test:billing": "tsc && node tests/billingPolicy.test.cjs",
-    "check:release": "npm run typecheck && npm run test:ai-access && npm run test:billing && npm run test:migrations",
+    "check:release": "npm run typecheck && npm run test:ai-access && npm run test:billing && npm run test:migrations && npm run test:trust",
     "audit:environment": "node scripts/audit-environment.cjs",
-    "migrations:bundle": "node scripts/build-migration-bundle.cjs"
+    "migrations:bundle": "node scripts/build-migration-bundle.cjs",
+    "test:trust": "tsc && node tests/trustPolicy.test.cjs && node tests/trustRoutes.test.cjs && node tests/trustMigration.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.4",
