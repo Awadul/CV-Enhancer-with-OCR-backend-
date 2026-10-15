@@ -39,7 +39,7 @@ const {parentPort,workerData}=require('worker_threads');
 (async()=>{
  const buffer=Buffer.from(workerData.bytes);let text='';
  if(workerData.ext==='.txt') text=new TextDecoder('utf-8',{fatal:true}).decode(buffer);
- else if(workerData.ext==='.pdf') {const {getDocument}=await import(require('url').pathToFileURL(workerData.pdf).href); const doc=await getDocument({data:new Uint8Array(buffer),isEvalSupported:false,disableFontFace:true,useSystemFonts:false,stopAtErrors:true}).promise;try {if(doc.numPages>20) throw new Error('Use a PDF with 20 pages or fewer.');for(let i=1;i<=doc.numPages;i++){const page=await doc.getPage(i);const content=await page.getTextContent();text+=content.items.map(item=>item.str||'').join(' ')+' ';if(text.length>60000) throw new Error('CV text exceeds 60000 characters.');}}finally{await doc.destroy();}}
+ else if(workerData.ext==='.pdf') {const {getDocument}=await import(require('url').pathToFileURL(workerData.pdf).href); const task=getDocument({data:new Uint8Array(buffer),isEvalSupported:false,disableFontFace:true,useSystemFonts:false,stopAtErrors:true,standardFontDataUrl:workerData.fonts});const doc=await task.promise;try {if(doc.numPages>20) throw new Error('Use a PDF with 20 pages or fewer.');for(let i=1;i<=doc.numPages;i++){const page=await doc.getPage(i);const content=await page.getTextContent();text+=content.items.map(item=>item.str||'').join(' ')+' ';if(text.length>60000) throw new Error('CV text exceeds 60000 characters.');}}finally{await task.destroy();}}
  else {
   const {inflateRawSync}=require('zlib');let end=buffer.length-22;
   while(end>=0&&buffer.readUInt32LE(end)!==0x06054b50) end--;
@@ -65,7 +65,7 @@ const {parentPort,workerData}=require('worker_threads');
 
 export function extractImportText(buffer: Buffer, ext: string, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
-    const worker = new Worker(workerScript, { eval: true, workerData: { bytes: buffer, ext, pdf: require.resolve('pdfjs-dist/legacy/build/pdf.mjs'), docx: require.resolve('mammoth') }, resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 } });
+    const worker = new Worker(workerScript, { eval: true, workerData: { bytes: buffer, ext, pdf: require.resolve('pdfjs-dist/legacy/build/pdf.mjs'), fonts: path.join(path.dirname(require.resolve('pdfjs-dist/package.json')), 'standard_fonts').split(path.sep).join('/') + '/', docx: require.resolve('mammoth') }, resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 } });
     let settled = false;
     const finish = (error?: Error, text?: string) => {
       if (settled) return;
