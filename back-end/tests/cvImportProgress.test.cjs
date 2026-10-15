@@ -4,11 +4,11 @@ const path=require('node:path');
 const express=require('express');
 const {createImportTailorController}=require(path.join(process.env.IMPORT_BUILD||path.join(__dirname,'../dist'),'controllers/cvImportTailorController.js'));
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
-async function fixture(extract,generate){
+async function fixture(extract,generate,importOnly=false){
  const app=express();let file;
- app.post('/import',(req,res,next)=>{file={buffer:Buffer.from('Synthetic CV only')};req.file=file;req.body={jobTitle:'Developer',jobDescription:'React'};res.locals.importExtension='.txt';res.locals.tailoringAllowance={allowed:true,remaining:3};next();},createImportTailorController(extract,generate));
+ app.post(importOnly?'/cv/import':'/import',(req,res,next)=>{file={buffer:Buffer.from('Synthetic CV only')};req.file=file;req.body=importOnly?{jobTitle:'',jobDescription:''}:{jobTitle:'Developer',jobDescription:'React'};res.locals.importExtension='.txt';res.locals.tailoringAllowance={allowed:true,remaining:3};next();},createImportTailorController(extract,generate));
  const server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));
- return {url:`http://127.0.0.1:${server.address().port}/import`,close:()=>new Promise(resolve=>server.close(resolve)),getBuffer:()=>file.buffer};
+ return {url:`http://127.0.0.1:${server.address().port}${importOnly?'/cv/import':'/import'}`,close:()=>new Promise(resolve=>server.close(resolve)),getBuffer:()=>file.buffer};
 }
 test('stream emits real checkpoints before delayed work finishes and only then sends the result',async()=>{
  const extraction=deferred(),generation=deferred();const f=await fixture(()=>extraction.promise,()=>generation.promise);
@@ -28,4 +28,9 @@ test('streamed failure never emits completion or raw provider errors',async()=>{
 test('legacy callers keep the JSON response contract',async()=>{
  const f=await fixture(async()=>'React developer',async()=>({cvData:{summary:'React developer'},summary:'React developer',suggestions:[]}));
  try{const response=await fetch(f.url,{method:'POST'});assert.match(response.headers.get('content-type'),/application\/json/);assert.equal((await response.json()).cvData.summary,'React developer');}finally{await f.close();}
+});
+
+test('immediate import accepts no role and returns original CV without tailoring suggestions',async()=>{
+ const f=await fixture(async()=>'React developer',async(_text,title,description)=>{assert.equal(title,'');assert.equal(description,'');return {cvData:{summary:'Original CV'},summary:'Unwanted rewrite',suggestions:[{section:'projects',field:'description',itemIndex:0,itemLabel:'App',current:'Original',improved:'Rewrite',reason:'Test'}]};},true);
+ try{const response=await fetch(f.url,{method:'POST',headers:{Accept:'application/x-ndjson'}});const events=(await response.text()).trim().split('\n').map(JSON.parse);const body=events.at(-1).body;assert.equal(body.cvData.summary,'Original CV');assert.equal(body.summary,'');assert.deepEqual(body.suggestions,[]);assert.ok(events.some(e=>e.stage==='Extracting your CV details'));}finally{await f.close();}
 });

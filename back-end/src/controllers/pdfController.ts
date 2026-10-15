@@ -9,8 +9,8 @@ export const generatePDFController = async (req: Request, res: Response) => {
 
   try {
     const { html } = req.body;
-    if (!html) {
-      return res.status(400).json({ message: 'HTML content is required' });
+    if (typeof html !== 'string' || !html.trim() || Buffer.byteLength(html, 'utf8') > 2_000_000) {
+      return res.status(400).json({ message: 'Provide CV HTML under 2 MB' });
     }
 
     if (pdfGenerationInProgress) {
@@ -26,6 +26,7 @@ export const generatePDFController = async (req: Request, res: Response) => {
     // Launch headless browser
     browser = await puppeteer.launch({
       headless: true,
+      ...(process.env.PUPPETEER_EXECUTABLE_PATH ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH } : {}),
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -35,12 +36,22 @@ export const generatePDFController = async (req: Request, res: Response) => {
     });
 
     const page = await browser.newPage();
+    // PDF input is untrusted HTML: never run its scripts or fetch arbitrary URLs.
+    await page.setJavaScriptEnabled(false);
+    await page.setRequestInterception(true);
+    page.on('request', request => {
+      let allowed = request.url().startsWith('data:');
+      try { const url = new URL(request.url()); allowed ||= url.protocol === 'https:' && ['www.mynext9to5.com','mynext9to5.com'].includes(url.hostname) && !url.username && !url.password && (!url.port || url.port === '443') && url.pathname.startsWith('/assets/'); } catch {}
+      if (allowed) void request.continue(); else void request.abort();
+    });
+    page.setDefaultTimeout(15000);
+    page.setDefaultNavigationTimeout(15000);
 
     // Set A4 viewport at 96 DPI
     await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 1 });
 
     // Set page content and wait for it to load
-    await page.setContent(html, { waitUntil: 'load' });
+    await page.setContent(html, { waitUntil: 'load', timeout: 15000 });
 
     // Wait for all web fonts to be fully loaded before generating PDF
     await page.evaluate(async () => {
@@ -120,8 +131,8 @@ export const generatePDFController = async (req: Request, res: Response) => {
     res.setHeader('Content-Disposition', 'attachment; filename=cv.pdf');
     res.send(binaryBuffer);
   } catch (error: any) {
-    console.error('Error generating PDF:', error);
-    res.status(500).json({ message: 'Failed to generate PDF', error: error.message });
+    console.error('PDF generation failed');
+    res.status(500).json({ message: 'PDF generation failed. Please retry shortly; your CV is unchanged.' });
   } finally {
     if (browser) {
       await browser.close().catch((closeError) => {

@@ -18,9 +18,10 @@ export function receiveCVImport(req: Request, res: Response, next: NextFunction)
     try {
       if (!req.file) throw new Error('Choose a PDF, DOCX or TXT file.');
       const ext = validateImportFile(req.file.originalname,req.file.buffer);
-      const {jobTitle,jobDescription} = req.body;
-      if (typeof jobTitle !== 'string' || !jobTitle.trim() || jobTitle.length > 200 || typeof jobDescription !== 'string' || !jobDescription.trim() || jobDescription.length > 20000) throw new Error('Add a job title and description within the stated limits.');
-      req.body = {jobTitle:jobTitle.trim(),jobDescription:jobDescription.trim()};
+      const importOnly = req.path === '/cv/import';
+      const {jobTitle = '',jobDescription = ''} = req.body;
+      if (!importOnly && (typeof jobTitle !== 'string' || !jobTitle.trim() || jobTitle.length > 200 || typeof jobDescription !== 'string' || !jobDescription.trim() || jobDescription.length > 20000)) throw new Error('Add a job title and description within the stated limits.');
+      req.body = importOnly ? {jobTitle:'',jobDescription:''} : {jobTitle:jobTitle.trim(),jobDescription:jobDescription.trim()};
       res.locals.importExtension = ext;
       next();
     } catch(error) { return res.status(400).json({message:(error as Error).message}); }

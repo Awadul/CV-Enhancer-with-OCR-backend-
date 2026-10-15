@@ -1,0 +1,6 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const path=require('node:path');const {unsupportedTailoringClaim:bad}=require(path.join((process.env.IMPORT_BUILD||path.join(__dirname,'../dist')),'utils/tailoringClaims.js'));
+test('blocks job requirements unsupported by the original entry',()=>{assert.equal(bad('Built a React task interface.','Built an accessible React task interface.','Build accessible React interfaces.'),true);assert.equal(bad('Built a React task interface.','Built a React interface using PostgreSQL.','Use PostgreSQL.'),true);});
+test('allows supported facts and faithful rewording',()=>{assert.equal(bad('Built accessible React interfaces.','Developed accessible React interfaces.','Build accessible React interfaces.'),false);});
+test('blocks unsupported quantities and leadership',()=>{assert.equal(bad('Built a task app.','Led delivery and improved performance by 40%.','Build applications.'),true);assert.equal(bad('Reduced load time by 40%.','Improved load time by 40%.','Improve load time.'),false);});
+
+test('numeric substrings cannot support a different claimed metric',()=>{assert.equal(bad('Processed 140 records.','Processed 40 records.','Process records.'),true);});

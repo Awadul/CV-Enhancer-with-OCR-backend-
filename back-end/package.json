@@ -11,11 +11,12 @@
     "test:migrations": "node tests/migrations.test.mjs",
     "typecheck": "tsc --noEmit",
     "test:billing": "tsc && node tests/billingPolicy.test.cjs",
-    "check:release": "npm run typecheck && npm run test:ai-access && npm run test:billing && npm run test:migrations && npm run test:trust && npm run test:tailoring && npm run test:local-check-limits",
+    "check:release": "npm run typecheck && npm run test:ai-access && npm run test:billing && npm run test:migrations && npm run test:trust && npm run test:tailoring && npm run test:local-check-limits && npm run test:guest-services",
     "audit:environment": "node scripts/audit-environment.cjs",
     "migrations:bundle": "node scripts/build-migration-bundle.cjs",
     "test:trust": "tsc && node tests/trustPolicy.test.cjs && node tests/trustRoutes.test.cjs && node tests/trustMigration.test.mjs",
-    "test:tailoring": "tsc && node tests/tailoringAccess.test.cjs && node tests/guestTailoringMigration.test.mjs && node tests/cvImport.test.cjs && node tests/cvImportProgress.test.cjs"
+    "test:tailoring": "tsc && node tests/tailoringAccess.test.cjs && node tests/guestTailoringMigration.test.mjs && node tests/cvImport.test.cjs && node tests/cvImportProgress.test.cjs",
+    "test:guest-services": "tsc && node tests/publicJobPage.test.cjs && node tests/guestJobSearch.test.cjs && node tests/tailoringClaims.test.cjs && node tests/remoteJobs.test.cjs && node tests/publicJobNetwork.test.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.4",

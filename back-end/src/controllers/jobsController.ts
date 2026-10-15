@@ -1,12 +1,15 @@
+import { searchRemoteJobs } from '../utils/remoteJobs';
 import { Request, Response } from 'express';
 import { searchJobs, buildQueryFromCV } from '../utils/jobSearch';
-import OpenAI from 'openai';
+import { readPublicJobPage, extractStructuredJob } from '../utils/publicJobPage';
 
 export async function searchJobsHandler(req: Request, res: Response) {
   try {
     const { query, location, page, numPages, cvData, country } = req.body;
 
-    let searchQuery = query;
+    const supported = ['us','gb','au','ca','de','fr','in','nl','nz','pl','sg','za','br','at','be','ch','es','it','mx'];
+    if ((query !== undefined && (typeof query !== 'string' || query.length > 200)) || (location !== undefined && (typeof location !== 'string' || location.length > 120)) || (country !== undefined && (typeof country !== 'string' || !supported.includes(country.toLowerCase()))) || (page !== undefined && (!Number.isInteger(page) || page < 1 || page > 5)) || (numPages !== undefined && (!Number.isInteger(numPages) || numPages !== 1)) || (cvData !== undefined && (!cvData || typeof cvData !== 'object' || Array.isArray(cvData) || JSON.stringify(cvData).length > 60000))) return res.status(400).json({message:'Use a short search, a supported country and a page from 1 to 5.'});
+    let searchQuery = query?.trim();
 
     if (!searchQuery && cvData) {
       searchQuery = buildQueryFromCV(cvData as Record<string, unknown>);
@@ -32,7 +35,7 @@ export async function searchJobsHandler(req: Request, res: Response) {
       job_city: job.job_city,
       job_state: job.job_state,
       job_country: job.job_country,
-      job_description: job.job_description?.slice(0, 1000),
+      job_description: job.job_description?.slice(0, 20000),
       job_apply_link: job.job_apply_link,
       job_posted_at: job.job_posted_at,
       job_salary: job.job_salary,
@@ -41,7 +44,7 @@ export async function searchJobsHandler(req: Request, res: Response) {
       job_required_skills: job.job_required_skills,
     }));
 
-    res.json({ status: 'OK', data: sanitized });
+    res.json({ status: 'OK', data: sanitized, source: 'Adzuna', fetched_at: new Date().toISOString(), country: country || 'us' });
   } catch (error) {
     console.error('Error in job search:', error);
     res.status(503).json({ message: 'Job search is temporarily unavailable. Please try again later or contact support if this continues.', code: 'JOB_SEARCH_UNAVAILABLE' });
@@ -49,71 +52,18 @@ export async function searchJobsHandler(req: Request, res: Response) {
 }
 
 export async function extractFromUrlHandler(req: Request, res: Response) {
+  if (typeof req.body?.url !== 'string') return res.status(400).json({message:'Add a public HTTPS job link.'});
   try {
-    const { url } = req.body;
-    if (!url || typeof url !== 'string') {
-      return res.status(400).json({ message: 'A valid URL is required' });
-    }
-
-    let html = '';
-    try {
-      const response = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        redirect: 'follow',
-      });
-      if (!response.ok) {
-        return res.status(400).json({ message: `Could not fetch URL: HTTP ${response.status}` });
-      }
-      html = await response.text();
-    } catch (fetchErr) {
-      return res.status(400).json({ message: 'Could not fetch the URL. Make sure it is a valid, publicly accessible job listing URL.' });
-    }
-
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: `Extract job listing details from the HTML content. Return JSON only with this structure:
-{
-  "job_title": "",
-  "employer_name": "",
-  "job_description": "",
-  "job_city": "",
-  "job_state": "",
-  "job_apply_link": "",
-  "job_salary": "",
-  "job_employment_type": "",
-  "job_is_remote": false,
-  "job_required_skills": []
-}
-Rules:
-- Extract only what is clearly present in the page
-- If a field is not found, leave it as empty string or false
-- Do not make up information`,
-        },
-        {
-          role: 'user',
-          content: `Extract job details from this page:\n\n${html.slice(0, 15000)}`,
-        },
-      ],
-      temperature: 0.1,
-      max_tokens: 2048,
-    });
-
-    let raw = completion.choices[0].message?.content?.trim() || '{}';
-    if (raw.startsWith('```json\n')) raw = raw.slice(7);
-    if (raw.endsWith('```')) raw = raw.slice(0, -3);
-
-    const jobData = JSON.parse(raw.trim());
-    res.json({
-      job_id: `url-${Date.now()}`,
-      job_apply_link: url,
-      ...jobData,
-    });
-  } catch (error) {
-    console.error('Error extracting job from URL:', error);
-    res.status(500).json({ message: 'Failed to extract job details from URL', error: (error as Error).message });
+    const page = await readPublicJobPage(req.body.url);
+    const job = extractStructuredJob(page.html, page.url);
+    return res.json({ job_id: `url-${Date.now()}`, ...job });
+  } catch {
+    return res.status(422).json({ message: 'This link could not be read safely. Paste the job title and description instead; your CV is unchanged.' });
   }
+}
+
+export async function remoteJobsHandler(req:Request,res:Response){
+ const {query,location=''}=req.body||{};
+ if(typeof query!=='string'||!query.trim()||query.length>200||typeof location!=='string'||location.length>120)return res.status(400).json({message:'Enter a role or skill under 200 characters and an optional location under 120.'});
+ try{return res.json(await searchRemoteJobs(query.trim(),location.trim()));}catch{return res.status(503).json({message:'The remote job feed is unavailable. You can still import a job link or paste a posting.'});}
 }
